@@ -1,0 +1,129 @@
+{
+  "task_id": "PingPong-Bounce-Residual",
+  "checkpoint": "logs/rsl_rl/pingpong_residual/2026-11-09_09-45-24_residual_v1/model_1999.pt",
+  "control_dt": 0.01,
+  "joints": [
+    "shoulder_pan",
+    "shoulder_lift",
+    "elbow_flex",
+    "wrist_flex",
+    "wrist_roll"
+  ],
+  "firmware_p": [
+    16,
+    64,
+    64,
+    32,
+    64
+  ],
+  "q_ready": [
+    -0.0005000000237487257,
+    -0.635699987411499,
+    0.5188000202178955,
+    0.1168999969959259,
+    0.048700001090765
+  ],
+  "joint_lower": [
+    -1.9198600053787231,
+    -1.7453292608261108,
+    -1.690000057220459,
+    -1.6580630540847778,
+    -2.743847370147705
+  ],
+  "joint_upper": [
+    1.9198600053787231,
+    1.7453292608261108,
+    1.690000057220459,
+    1.6580630540847778,
+    2.8412063121795654
+  ],
+  "action": {
+    "dim": 5,
+    "scale": 0.1,
+    "residual": true,
+    "goal": "clip(bouncer_goal + scale * action, joint_lower, joint_upper)"
+  },
+  "observation": {
+    "dim": 87,
+    "layout": "terms concatenated in this order; a term with history h contributes h frames, oldest first; after a reset every frame equals the first value",
+    "terms": [
+      {
+        "name": "joint_pos",
+        "dim": 5,
+        "history": 3,
+        "doc": "Encoder angles relative to the ready pose (5)."
+      },
+      {
+        "name": "joint_vel",
+        "dim": 5,
+        "history": 3,
+        "doc": "Encoder velocities (5)."
+      },
+      {
+        "name": "paddle",
+        "dim": 9,
+        "history": 1,
+        "doc": "Blade face centre relative to its target, face normal, face velocity, from the encoders (9)."
+      },
+      {
+        "name": "ball",
+        "dim": 10,
+        "history": 1,
+        "doc": "Ball filter estimate: position relative to the impact target, velocity, position / velocity std, time since the last detection (capped at 0.5 s), tracked flag (10)."
+      },
+      {
+        "name": "impact",
+        "dim": 7,
+        "history": 1,
+        "doc": "Predicted crossing of the hitting plane on a converged track: time to it (capped at 1.2 s), position relative to the target, incoming velocity, valid flag (7)."
+      },
+      {
+        "name": "actions",
+        "dim": 5,
+        "history": 5,
+        "doc": "policy output of the previous steps (raw, unscaled)"
+      },
+      {
+        "name": "bouncer",
+        "dim": 6,
+        "history": 1,
+        "doc": "Scripted bouncer goal relative to ready, and time to its planned impact (capped to [-0.2, 1.2] s) (6)."
+      }
+    ]
+  },
+  "task": {
+    "target_xy": [
+      0.4,
+      0.0
+    ],
+    "hit_z": 0.25,
+    "apex": 0.25,
+    "trust_vel_std": 0.5,
+    "use_bouncer": true
+  },
+  "bouncer": {
+    "target_xy": [
+      0.4,
+      0.0
+    ],
+    "hit_z": 0.25,
+    "apex": 0.25,
+    "restitution": 0.58,
+    "steer_gain": 0.7,
+    "reach": 0.06,
+    "max_tilt_deg": 20.0,
+    "stroke_time": 0.12,
+    "stroke_joint": 2,
+    "lead": 0.0,
+    "lock": 0.03,
+    "follow": 0.15,
+    "min_approach": 0.04,
+    "predict_dt": 0.02,
+    "predict_horizon": 1.2,
+    "feedforward": true
+  },
+  "onnx_check": {
+    "samples": 4800,
+    "max_abs_diff": 9.238719940185547e-07
+  }
+}

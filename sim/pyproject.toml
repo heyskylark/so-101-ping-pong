@@ -16,6 +16,7 @@ dependencies = [
   "feetech-servo-sdk>=1.0.0",
   "matplotlib>=3.11.2",
   "numpy",
+  "onnxruntime>=1.31.1",
   "pyyaml",
 ]
 
