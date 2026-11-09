@@ -1,0 +1,380 @@
+# SO-101 Ping Pong Bouncer — Plan & TODO
+
+Goal: SO-101 arm holding a ping pong paddle keeps a ball bouncing in place, trained with RL in
+MuJoCo Warp (via mjlab), deployed zero-shot with camera ball tracking (overhead + wrist camera).
+
+Papers referenced below are kept locally in `research/` (PDFs git-ignored; file names carry year, authors, arXiv id).
+
+Prior art on the exact task: [@praneethsamine](https://x.com/praneethsamine/status/2117447732176830940)
+got an SO-101 bouncing a ball (avg ~13 bounces, best 23) with RL trained in Isaac Sim, overhead + wrist
+camera, zero real demos. His reported blockers, all addressed below:
+
+- real paddle/ball far less bouncy than sim → measure restitution first (§5)
+- servos much slower under load than modeled → BAM actuator model (§1)
+- paddle a few degrees off flat → ball rolls off → mount alignment + calibration (§2, §3)
+- getting the initial bounce going → launch phase in the task (§3)
+- camera calibration, joint offsets → extrinsic calibration (§3)
+- safety with hand-dropped ball → wait-for-detection, hand disturbances, occlusion, false detections in sim (§3)
+
+---
+
+## 1. Base SO-101 model & servo model
+
+| Asset | What it is | Caveats |
+|---|---|---|
+| [TheRobotStudio `Simulation/SO101`](https://github.com/TheRobotStudio/SO-ARM100/tree/main/Simulation/SO101) | Onshape-exported URDF + MJCF (new/old calib) | Motor params "adapted from Open Duck Mini" |
+| [Menagerie `robotstudio_so101`](https://github.com/google-deepmind/mujoco_menagerie/tree/main/robotstudio_so101) | Cleaned MJCF: primitive collisions, implicitfast, camera mount | **Use this as the base** |
+| [Rhoban BAM](https://github.com/Rhoban/bam) | Fitted STS3215 friction model (load-dependent, Stribeck, drive vs back-drive), mjlab/Warp API | **No backlash** |
+
+Gaps in the stock model:
+
+- [x] **Backlash** — measured: no free play at the encoders (fitted to 0); gear compliance instead (§1 fit below).
+- [x] **Servos ~100× too stiff** — stock `kp=998 N·m/rad`; replaced by the fitted STS3215 model (below).
+- [x] **Torque limit** — stock `forcerange` 2.94 N·m (3.35 upstream). Now the fitted model's current limit (3.0 A) and
+      voltage/back-EMF; notes on the stock value: our 12 V servos stall at 30 kg·cm ≈ 2.94 N·m,
+      so the stock limit matches stall; the real limit is the BAM voltage/back-EMF model, not a hard clamp. For
+      reference the 7.4 V C001 [datasheet](https://files.seeedstudio.com/products/Feetech/108090023_STS3215-C001_Datasheet.pdf):
+      stall 19.5 kg·cm ≈ 1.91 N·m, no-load 0.192 s/60° ≈ 5.45 rad/s, 0.088° resolution, 1:345.
+- [ ] **No delays** — BAM doesn't model bus/actuator delay; measure on the assembled arm, randomize.
+- [x] **Servo variant** — Feetech STS3215 **12 V, 30 kg·cm** (bought 12), on a 12 V supply. BAM ships only 7.4 V
+      STS3215 params: `sim/scripts/make_sts3215_12v_params.py` keeps them and scales kt/R by the datasheet ratios
+      (C018: 30 kg·cm, 0.222 s/60°). BAM's 7.4 V fit already exceeds its datasheet stall by 1.8× (3.43 vs 1.91 N·m),
+      so the scaled 12 V model gives 5.3 N·m stall, 5.0 rad/s no-load: optimistic until fitted. Run the scripted
+      bouncer go/no-go (step 5) also with a datasheet-level torque. Fit from recordings (option A, below).
+- [x] **Firmware gains** — BAM models the firmware P term only (duty = error · P · gain, rate-limited target);
+      its recorder writes D = 0 and never sets I, so the published fits assume I = 0, D = 0. so101-mcp currently
+      writes P/I/D = 16/0/32 pan, 64/8/32 lift, 64/8/32 elbow, 32/0/32 wrist_flex, 64/8/32 roll. Ping-pong deploy
+      writes its own profile: same P, **I = 0, D = 0, Acceleration 0** (decided after the D = 0 / 32 recordings);
+      the sim uses exactly that. P can be re-tuned in sim before deployment.
+- [x] **Servo recording, option A — on the arm** (do this; no extra hardware): `sim/scripts/record_servos.py`
+      (`map` once, then `record`; `--sim` runs the same plan on the model). Writes the gain profile, then at three
+      level-blade poses per joint: steps (3 sizes, both ways), slow reversals, 0.3–5 Hz chirp; then 20 s of
+      bounce-like motion; ~8 min, logs goal/position/velocity/load/current/voltage/temperature with host
+      timestamps → `measurements/servo/<time>/`. Plan checked in sim before it runs (limits, table, blade vs arm);
+      Ctrl-C returns to the start pose. Then fit BAM params + delay + backlash against the full MuJoCo model.
+      Run 1 (`measurements/servo/2026-11-08_212508`, D = 0, complete): step rise on lift/elbow matches the unfitted
+      12 V model; real arm rings at ~2.7 Hz, ±1–4° for ~0.5 s after steps (sim doesn't). Temperature/voltage
+      registers glitch single samples (up to 150 °C, 9.7 V); real: ≤ 43 °C, ≥ 11.5 V.
+      Run 2 (`2026-11-08_213640`, `--d-gain 32`): overshoot 14 → 11 % (lift), 7 → 3 % (pan); ringing p2p unchanged
+      (lift 2.0 → 1.6°, pan 2.2 → 2.3°), chirp tracking slightly worse. The ringing is the coupled arm: a lift step
+      moves the holding elbow 5.3° and wrist 2.8° (sim 3.0° / 1.9°), wrist_flex steps move lift/elbow 2.5–3°
+      (sim 1°) → holding joints are softer than the model (backlash, low stiffness near zero error). Fit must
+      capture this. **Deploy gains decided: D = 0** (BAM's model, D buys little).
+      **Fit** (`sim/scripts/fit_servos.py` → `sim/src/pingpong_sim/assets/actuators/sts3215_12v_fit.json`, report
+      `measurements/servo/fit_2026-11-08_221524/`): CMA-ES over 26 params of `servo_model.py` (BAM m6 physics +
+      gear compliance + command delay + firmware feedback delay + current limit), fit on ready/near_low, tested on
+      far_high + bounce motion. Held-out RMS 0.44/0.75/0.60/0.38/0.14° → 0.35/0.71/0.49/0.37/0.10°
+      (pan/lift/elbow/wrist/roll); "arm does exactly what it's told" would be 1.2–1.8°. Rise, overshoot and timing
+      match; command delay 8.7 ms, current limit 3.0 A (register says 2.0 A), gears stiff (110–590 N·m/rad), no
+      measurable free play (backlash fitted to 0 in an earlier run), feedback delay ≈ 0.
+      **Not reproduced:** after a neighbour moves, real holding joints hunt at 3–4 Hz, ±1° for > 1 s (elbow p2p
+      during lift steps: real 2.78°, sim 2.0°). Neither gear springs nor feedback delay reproduce it without
+      worsening the fit. Plan: cover it with randomization in training (gear stiffness, feedback delay,
+      disturbance torques on holding joints), and check the trained policy's paddle-tilt sensitivity to it.
+- [x] Fitted model in training: `sim/src/pingpong_sim/servo_actuator.py` (mjlab actuator around `ServoModel`;
+      gear joints are part of `robot.get_spec`). `get_robot_cfg(randomize=True)` draws a servo per world at each
+      reset (`DEFAULT_RANDOMIZATION`: shared params ×/÷1.1–2 by how well the fit pinned them, gear stiffness
+      80–600 N·m/rad, command delay 4–20 ms, feedback delay 0–6 ms, supply 11.5–12.3 V, OU disturbance torque
+      std 0–0.08 N·m). Checks: the mjlab path replays the recording within 0.02–0.19° of the fitter's replay;
+      randomized 0.3 rad steps: lift/elbow overshoot 10–31 % (real 14 %), pan ≤ 6 % (real 7 %, slightly under).
+      Hunting is likely PLA flex under hard commands (user, 2026-11-08) → covered by the stiffness/disturbance ranges.
+- [ ] **Servo recording, option B — spare-servo pendulum bench** (backup, only if option A's fit is poor): printed
+      desk bracket + 100–150 mm bar + 2–3 weighed masses (100–500 g); daisy-chain the spare on the arm's bus as
+      ID 7; record BAM's trajectories (incl. `lift_and_drop` for backdrive friction) and fit with BAM.
+
+## 2. Paddle attachment (sim + print)
+
+Paddle: **NIBIRU SPORT set (ASIN B098TYG4M5)** — 5-ply wood blade, inverted sponge rubber, flared handle,
+3-star ABS 40 mm balls. No published dimensions/weight → measure everything.
+
+Sim model edit (via `MjSpec` in mjlab, not a forked XML):
+
+- [x] Remove `gripper` + `moving_jaw` bodies.
+- [x] Add paddle body on the wrist-roll link: blade collision as a convex prism of the rubber region, visual mesh from CAD.
+      Placement in the `gripper` body frame (origin on the horn face, roll axis = z): holder meshes at
+      `quat="0 1 0 0"` like the stock follower; paddle axis = −z, blade normal = ±x, butt at z = −9 mm,
+      paddle CoM at z = −133.6 mm, blade face centroid at z = −180.6 mm (`cad/paddle/derived.yaml` + 9 mm).
+- [x] Gear-compliance joints, fitted servo actuator (§1).
+
+Mount geometry:
+
+- Blade plane contains the wrist-roll axis (handshake grip): `wrist_flex` = pitch, `wrist_roll` = roll,
+  pan/lift/elbow = position. Exactly the 5 DoF needed; yaw about the face normal is irrelevant.
+- Paddle CoM on the roll axis → low roll inertia. Removing the gripper servo saves ~55 g at the wrist.
+- Torque: per decision, the stock paddle is fine (@praneethsamine's run confirms it works); the real cost is
+  servos being **slower under load**, which BAM covers.
+
+Paddle digitization (data + derivation in [`cad/paddle/`](cad/paddle/); rerun with `uv run cad/paddle/derive.py`):
+
+- [x] Mass 151 g, balance point 124.6 mm from the butt, on the centerline/mid-plane.
+- [x] Blade outline: pencil trace on Letter paper, photo rectified, pencil offset removed → `outline.csv` / `outline.dxf`.
+- [x] Thicknesses: wood core 6.6 mm, rubber + sponge 2.0 mm per side.
+- [x] Handle cross-sections at 5 stations; rounded rectangle, r ≈ 8 mm, symmetric about the blade mid-plane.
+- [x] Inertia estimated from a 3-material model fitted to mass + balance point (`derived.yaml`).
+- [ ] Optional: bifilar-pendulum check of the inertia (needed only if sim sysid points at the paddle).
+
+Mount design (replaces the follower wrist-roll part):
+
+Onshape (public, free plan): [SO-101 Ping Pong Paddle Holder](https://cad.onshape.com/documents/82d0b8811e842acce82a5fa2/w/2166488813b293f9fe12d64e/e/24cae980fe8bf3b3bc1bd132)
+— the `SO101 Assembly` tab is the upstream assembly STEP imported as one Part Studio in its assembled pose.
+Modeling goes through the Onshape Labs FeatureScript MCP (`onshape` in `~/.omp/agent/mcp.json`).
+
+Holder v1: [`cad/holder/paddle_holder.fs`](cad/holder/paddle_holder.fs) (source of truth, also in the Onshape
+document's `Paddle holder FS` tab) + exported STEP/STL (mm) for both halves.
+
+- [x] Horn interface copied from `Wrist_Roll_Follower_SO101.step` (same 4 M3 screws, same roll zero).
+- [x] Two-piece clamp split on the blade plane, pocket lofted from the caliper sections (0.2 mm clearance,
+      0.8 mm split gap → 0.4 mm squeeze), handle waist locks the paddle axially, 4× M3x10 into M3x6 heat-set inserts.
+- [x] Blade plane contains the roll axis and the wrist_flex axis direction at roll = 0.
+- [x] Collision sweep vs the stock assembly over the full roll range (`cad/holder/preview_on_arm.py`): clear of
+      the stationary wrist parts, holder + camera mount + camera included (min 0.58 mm to the wrist bracket).
+- [x] Prints with support only under the horn boss: horn and camera holes teardropped like the stock follower;
+      45° chamfers where the sleeve and camera pad meet the bed; bridged steps under the cap's counterbores.
+      (A keel under the boss would hit the wrist bracket, which comes to r = 12.6–15 mm just behind the horn.)
+- [x] Wrist camera: stock `SO101_Wrist_Cam_Hex-Nut_Mount_32x32_UVC_Module` adapter on the −y side (robot's
+      left at roll = 0, blade level, cap up), same pose as on the stock follower; 2× M3x8 + 2× M3 nuts in nut
+      traps (base nut from the split face, cap nut from the cap's top face). Camera looks forward and 25° inward,
+      ~3.5 mm above the blade plane, so it sees the blade nearly edge-on (ball height above the blade, not the
+      face). Adds ~35 g on the roll link: include mount + camera in the sim body.
+- [x] Print 1 (PLA): the cap's 5.7 × 2.7 nut trap (opening on its print bed) wouldn't take the nut; the base's
+      did. Traps now 5.9 × 2.9, the cap trap has a mouth relief, and `make_print_project.py` adds a support
+      blocker over it (otherwise the slicer grows a support tree up the trap). Insert holes 4.0 → 3.8 mm
+      for 4.2 mm OD inserts (the print-1 base keeps 4.0). Cap reprint: `make_print_project.py --parts cap`.
+- [ ] Print (each half on its flat outer face, PETG/PA-CF) and test-fit the handle; adjust clearance/gap.
+      Print 1 (PLA, 0.2 mm clearance, 0.8 mm gap): handle seats snug by hand and doesn't move once clamped; keep
+      both values. Pending: cap nut, inserts, assembly.
+- [x] Weighed (1 g scale): cap 25 g, base 35 g (each with its inserts/screws), camera mount + camera module +
+      screws/washers 22 g. Wrist payload ≈ 60 g holder + 22 g camera + 151 g paddle = 233 g.
+- [ ] Measure mount stiffness.
+- [ ] AprilTag on the blade back for calibration (§3).
+- Quick first test without CAD: clamp the handle in the stock gripper jaws (adds gripper compliance/backlash).
+
+## 3. mjlab training setup (decided: mjlab)
+
+Stack: [mjlab](https://github.com/mujocolab/mjlab) (Isaac Lab API on MuJoCo Warp) + rsl_rl PPO.
+Has delayed/learned/PD actuators, actuator DR, rsl_rl RNN models; BAM integrates directly.
+Reference: Rhoban [`mjlab_microban`](https://github.com/Rhoban/mjlab_microban) (STS3215 + BAM + mjlab sim2real).
+
+- [x] uv project `sim/` (see `sim/README.md`): Python 3.12, stack pinned by `better-actuator-models[mjlab]==1.0.3`
+      (mjlab 1.3, mujoco / mujoco-warp 3.7, warp 1.12). RTX 3090: ~2 M physics steps/s at 4096 envs (1 ms step,
+      unoptimized harness loop).
+- [x] Robot asset (`sim/src/pingpong_sim/robot.py`): Menagerie SO-101 minus gripper + holder/camera/paddle meshes
+      exported in the holder frame (`cad/holder/export_sim_meshes.py`), measured masses (wrist-roll payload 233 g),
+      blade collision = convex prism of the rubber region; fitted servo actuator; ready pose by IK.
+      Checks: no contacts over the full wrist-roll sweep at the ready pose; GPU hold/step response runs
+      (sag ≈ 0.5° on lift/elbow/wrist; 0.3 rad step rises in 60–110 ms, 16 % overshoot at P = 64, D = 0).
+- [x] Gear-compliance joints (replace backlash, §1).
+- [x] Ball (`sim/src/pingpong_sim/ball.py`): free 40 mm thin shell, 2.75 g, Cd 0.50 via MuJoCo's ellipsoid fluid
+      model (works on MJWarp 3.7 only with the Euler integrator → Euler everywhere; blunt coefficient = Cd / 2).
+- [x] Ball–paddle contact: explicit ball–blade pair, `solref (0.01, 0.19)`, stiff friction `solreffriction
+      (0.002, 1)`, 1 ms step. Linear spring-damper → speed-independent e = 0.58 ± 0.035 (contact-phase scatter);
+      `sim/scripts/validate_ball.py` replays the drops: e within ±0.03 of the measured fit for v ≥ 1.5 m/s, 25 in
+      impact speed 3.40 m/s (measured 3.40), 16.5° tilt normal e 0.57, tangential kept 0.60 (measured 0.4 ± 0.1;
+      0.6 is the rolling limit, the most loss MuJoCo friction can give). Known gap: slow dribbles (< 1 m/s) bounce
+      lower than real (sim 0.58 vs 0.65–0.75). A custom Warp impulse kernel would fix both gaps if they matter.
+- [ ] Task cfg (design agreed 2026-11-08):
+  - **Episode:** 100 Hz policy, 20 s. Arm at ready (+ joint noise); ball held "in hand" 0–1 s, then released
+    20–50 cm above the paddle, ±3 cm off centre, small velocity; some episodes start mid-flight. Fixed apex 0.25 m.
+  - **Terminations:** ball 10 cm below the hitting plane; > 20 cm sideways; ball touches anything but the blade;
+    paddle tilt > ~30°.
+  - **Actor obs:** encoder angles (vs ready) + velocities (quantised, noisy); paddle face pos/normal/velocity via FK;
+    ball pos/vel vs target from the **deployment ball filter** fed by simulated overhead + wrist cameras
+    (`camera_sim.py`: 30 fps rolling shutter, latency, noise, blur, occlusion, dropouts, calibration and timestamp
+    error), time since last measurement, KF uncertainty, tracked
+    flag; predicted impact time/point/incoming speed (bouncer predictor); last 5 actions; ~50 ms joint history;
+    last bounce's measured apex and restitution.
+  - **Critic obs (privileged):** + true ball state, servo params of the world, restitution, delays, gear deflections.
+  - **Actions:** 5 joint goals. Policy 1: **residual** on the scripted bouncer's goal. Policy 2: direct offsets from
+    ready, for comparison.
+  - **Rewards:** per bounce (blade contact sending the ball ≥ 5 cm up): bounce, apex from outgoing velocity vs
+    0.25 m, predicted landing point vs target, contact near blade centre; per step: action rate, joint speed,
+    servo current, joint-limit proximity; terminal penalty. No alive bonus (resting-ball exploit).
+  - **Randomization:** servos (done); ball 2.5–3.0 g, e 0.50–0.66, friction ×/÷2, Cd 0.40–0.55; paddle mass/CoM ±5 %;
+    cameras (`camera_sim.py` defaults: latency, noise, dropouts, calibration and timestamp residuals at 1.5× the
+    calibration targets); wrist camera off in some episodes (it is optional); control jitter; occasional ball
+    pushes. Curriculum from easy to full ranges.
+  - **Benchmark:** `run_bouncer.py` conditions; beat the scripted bouncer (realistic row with the camera pipeline,
+    see below: 10–21 %, median 12–13 bounces).
+- [x] Ball pipeline shared by sim and deployment (`sim/src/pingpong_sim/ball_filter.py`, `camera_sim.py`; design and
+      calibration findings below). Scripted bouncer, 20 s, 256 worlds, 0.25 m apex, default camera randomization:
+
+      | Servos | Overhead + wrist | Overhead only |
+      |---|---|---|
+      | fitted | 62 % (median 43 bounces) | 77 % (44) |
+      | randomized | 10 % (12) | 21 % (13) |
+
+      Tracking error p50/p90 ~8 / 17 mm, velocity 0.05–0.07 / 0.17 m/s. Ideal cameras (no noise, exact calibration,
+      30 ms latency) 98 %; careful-calibration residuals (3 mm / 0.3°, 1 mm / 0.5°, ±2 ms) 88 % / 94 % overhead only.
+      The wrist camera does not pay off yet for the scripted bouncer (its mount error and encoder-FK pose cost
+      more than its views add); keep it as an optional source and re-check with the RL policy.
+- [ ] Tracking speed: rig + filter cost ~57 ms per control tick at 4096 worlds (launch-bound torch, ~40 ms of it the
+      filter). CUDA-graph / fuse before long training runs. Deployment: filter 3.8 ms per tick on CPU (1 world).
+- [ ] `uv run train …` at ≥4096 envs → sim2sim check in CPU MuJoCo → ONNX export.
+
+No camera rendering in the RL loop: train on the deployment filter fed by simulated detections.
+
+```mermaid
+flowchart LR
+  subgraph Real
+    C[overhead + wrist UVC cams, 30 fps] --> D[blob detect + undistort] --> K[BallFilter EKF]
+    E[servo encoders] --> F[FK: paddle, wrist cam pose] --> K
+    E --> P
+    K --> P[ONNX policy] --> S[STS3215 position targets]
+  end
+  subgraph Sim
+    B[true ball + paddle + cam poses] --> CS[camera_sim: timing, lens, noise, occlusion, calib error] --> K2[BallFilter EKF]
+    J[encoder angles] --> K2
+    K2 --> P2[policy]
+    J --> P2 --> A[fitted servo model + gear joints]
+  end
+```
+
+Cameras (decided 2026-11-09): two InnoMaker U20CAM-720P (the SO-ARM100 32x32 UVC module): 1280x720 MJPEG, 30 fps,
+rolling shutter, 102° × 59° (120° diagonal) lens with strong barrel distortion. Mounting and image settings:
+[`docs/camera_setup.md`](docs/camera_setup.md).
+
+- **Overhead:** SO-ARM100 overhead mount (lens ~0.55 m up, plate tilted 25° from straight down), standing on its own
+  24 in (0.61 m) in front of the arm base, looking back at the bounce (~18 cm in front of the ball column).
+- **Wrist:** on the paddle holder (`sim/src/pingpong_sim/robot.py` `WRIST_CAM_POS`), ~0.2 m behind the blade centre
+  at blade height, looking along the paddle at it: sees the ball up to ~0.25 m above the blade in the y
+  orientation, in the paddle's own frame.
+- **Mount both with the image long side along the tilt / blade normal** (overhead: long side pointing from the post
+  toward the arm; wrist: image taller than wide with the blade level). Sim: ball in view in ~80 % / ~55 % of
+  frames vs ~45 % / ~25 % rotated 90°; bouncer survival 38 % vs 12 % (default randomization).
+- **Manual exposure** ≤ 2 ms with bright light (auto exposure indoors is 10–30 ms: 2–7 cm of blur at 2.4 m/s).
+- Ball pipeline (`sim/src/pingpong_sim/ball_filter.py`, shared with deployment; `camera_sim.py` for sim): per-camera
+  EKF updates in undistorted image coordinates + apparent size (one camera alone fixes 3D), paddle-aware
+  prediction through bounces (from encoder FK), latency compensation, out-of-order detections, chi² gating
+  (false detections), monocular track start. Timestamp uncertainty and calibration residuals enter as measurement
+  noise — without that, two slightly inconsistent cameras make the velocity zig-zag (survival 15 % → 88 %).
+  Consumers must wait for a converged track (velocity std < 0.5 m/s): planning on a one-frame track sank the
+  first bounces.
+
+Calibration — the sim says systematic errors dominate (scripted bouncer, everything else ideal: ±5 ms timestamp
+bias → 20 % survive, ±2 ms → 45 %; overhead extrinsics 1 cm/1° → 23 %, 3 mm/0.3° → 66 %; wrist mount 2 mm/2° → 54 %,
+1 mm/0.5° → 81 %; latency itself, 15–60 ms + readout, with correct timestamps → 85 %). Targets: overhead
+extrinsics ≤ 3 mm / 0.3°, wrist mount ≤ 1 mm / 0.5°, per-camera timestamp offset ≤ ±2 ms. Training randomizes 1.5×.
+
+- [ ] Intrinsics per camera (ChArUco board), fisheye model (barrel < −17 %).
+- [ ] Overhead extrinsics via the arm: AprilTag on the paddle, move through ~20 poses, FK gives tag pose in base
+      frame, solve camera→base. Same data can fit joint zero offsets.
+- [ ] Wrist camera mount (hand-eye): wrist camera views a fixed tag (base plate) from ~20 arm poses, solve the
+      camera-in-holder transform (CAD: `WRIST_CAM_POS/QUAT`).
+- [ ] Timestamp offset per camera: sinusoidal arm motion with the paddle tag in view; cross-correlate the tag track
+      with encoder FK (encoders are read at 100 Hz with host timestamps) → capture-time offset to ~1 ms. Also gives
+      the rolling-shutter readout time (offset vs image row).
+- [ ] Validate with gravity: drop the ball, fit a parabola, acceleration must be (0, 0, −9.81) in base frame.
+      Frame tilt matters: 1° ≈ the paddle-tilt error in §4 (~3 cm drift/bounce).
+- [ ] Level check: ball resting on the "flat" paddle must not roll.
+
+## 4. Task physics / feasibility
+
+Steady state: $v_{out} = -e\,v_{in} + (1+e)u$ ⇒ required paddle speed $u = v\frac{1-e}{1+e}$.
+
+| Apex height | Impact speed | Time between hits | Paddle speed at e = **0.58 (measured)** / 0.7 / 0.8 | Drift per hit from 1° tilt (e=0.8) |
+|---|---|---|---|---|
+| 0.15 m | 1.72 m/s | 0.35 s | **0.46** / 0.30 / 0.19 m/s | 1.9 cm |
+| 0.25 m | 2.21 m/s | 0.45 s | **0.59** / 0.39 / 0.25 m/s | 3.1 cm |
+| 0.35 m | 2.62 m/s | 0.53 s | **0.70** / 0.46 / 0.29 m/s | 4.4 cm |
+
+- Speed/torque easy: ball impulse ≈ 0.01 N·s; the paddle is effectively a driven surface.
+- **Orientation is the hard part**: up to 3 servos × ±0.5° backlash in paddle pitch vs ~3 cm drift per degree.
+- Air drag is 7–15% of weight at 2.2–3.3 m/s (measured Cd 0.50) — not negligible.
+- 0.35–0.53 s between hits vs ~30–60 ms latency (estimate; measure). Higher apex = more reaction time;
+  @praneethsamine found low bounces hardest with these servos.
+- Mirror law / decelerating paddle at impact makes bounce height passively stable (Schaal & Atkeson '93).
+
+## 5. What to measure
+
+Ball:
+
+- [x] 40 mm, 2.75 g (4 balls = 11 g, 1 g scale). ITTF bounce 240–260 mm from 305 mm onto steel ⇒ e ≈ 0.89–0.92 on steel, **not** on the paddle.
+- [x] Drag: Cd = 0.50 ± 0.03 from the 16–25 in paddle-drop falls (6 ft floor drops too blurred to pin it down);
+      `measurements/ball/` (240 fps iPhone slow-mo, 35 videos, `analyze.py` reproduces `results.yaml`).
+
+Ball on paddle (slow-mo phone or the stereo rig):
+
+- [x] Restitution vs impact speed (clamped holder, blade centre, 119 impacts): e = 0.578 + 0.373·exp(−v/0.54 m/s),
+      scatter 0.037 → 0.75 at 0.4 m/s, 0.60 at 1.7 m/s, 0.57 above 2.5 m/s. Far below the 0.7–0.9 assumed earlier.
+- [ ] Restitution across the blade: edge, near the mount (only centre drops so far).
+- [x] Oblique drops (blade tilted 16–17°, 2 videos): normal e matches the centre fit; 0.37–0.41 (±0.1) of the
+      tangential speed kept.
+- [ ] Same rubber side every time.
+
+Paddle as payload:
+
+- [x] Mass, CoM, inertia, blade + rubber thickness (§2).
+- [ ] Mount offset (§2).
+- [ ] Mount stiffness.
+
+Arm:
+
+- [ ] Backlash per joint (paddle AprilTag + camera while reversing each joint).
+- [ ] Command→motion delay.
+- [ ] Firmware P gain, acceleration, voltage — must match sim.
+- [ ] Optional own BAM / `mujoco.sysid` fit from recorded joint sweeps.
+
+Perception:
+
+- [ ] Per camera: intrinsics, readout time, end-to-end latency (capture → detection on the host), detection noise
+      (px) and false-detection rate under the real lighting.
+
+## 6. Robustness: randomization & memory
+
+Domain randomization ranges:
+
+- restitution, paddle friction, drag, ball mass
+- latency 15–60 ms + readout, observation noise, dropouts, false detections, calibration and timestamp offsets
+- backlash 0–1° per joint, BAM friction ±30%, gains, supply voltage
+- paddle mass/CoM, mount stiffness
+
+Ball flight is near-deterministic given position + velocity (Kalman filter). Memory helps with the **latent,
+drifting** parameters (this paddle's restitution, latency, backlash, sag), which only show up across bounces.
+
+- [ ] Step 1: MLP policy with
+  - KF ball estimate
+  - predicted impact point / time / apex from a gravity+drag model (PACE-style)
+  - 0.5–1 s history of observations + actions
+- [ ] Step 2: asymmetric critic with privileged sim state (true ball state, restitution, delays).
+- [ ] Step 3: GRU/LSTM (rsl_rl) only if step 1 can't adapt to randomized restitution/latency;
+      teacher-student (RMA-style) as the next fallback.
+
+---
+
+## Suggested order
+
+1. [x] Measure: ball drops on the paddle (35 videos), paddle mass properties, holder/camera weights.
+2. [x] Design + print mount.
+3. [x] Sim step 1: analyze drop videos (restitution vs speed, drag, rubber grip); `sim/` uv project; SO-101 +
+       holder + camera + paddle model with the datasheet-scaled 12 V servo model; ball contact fitted to the drops.
+4. [x] Servo recording option A on the arm → fitted servo model, delays, gear compliance (§1).
+5. [x] Scripted bouncer in sim (`sim/src/pingpong_sim/bouncer.py`, `sim/scripts/run_bouncer.py`): drag-aware impact
+       prediction, aim from the measured restitution, constant-acceleration single-joint (elbow) stroke, feedforward
+       through an identified linear tracking model (`sim/scripts/identify_tracking.py`). 20 s runs, 0.25 m apex:
+       fitted servos 100 % of worlds keep bouncing (44 bounces, apex 0.245 ± 0.023 m, impacts ~2 cm from target);
+       + 30 ms ball latency (predicted forward, as the KF will) + 2 mm noise: 94 %; randomized servos: 56 %
+       (median 43, p10 4); randomized + latency + noise: 30 %, median 15 bounces (cf. @praneethsamine's 13 avg).
+       Lessons: without feedforward ~2 bounces (P-servoed arm resonates at the 3–4 Hz of a stroke); a level-face
+       multi-joint stroke fails (elbow/wrist out of step cancels the face speed); predicting from the measurement
+       time is essential. Failures under randomization: feedforward model is the nominal servo's. Optional: run
+       it on the real arm (ball state from the cameras + ball filter) as a baseline/first demo.
+6. [ ] RL in mjlab.
+7. [ ] Cameras (overhead + wrist UVC, §3) + calibration (extrinsics, wrist mount, timestamp offsets) + latency.
+8. [ ] Deploy.
+
+## Decisions
+
+Decided:
+
+- Paddle: NIBIRU SPORT stock paddle; torque considered fine.
+- RL stack: mjlab (MuJoCo Warp) + rsl_rl PPO.
+- Servos: 12 V STS3215 on all joints, 12 V supply.
+- Contact model: built-in MuJoCo contact (explicit ball–blade pair) — matches the drops at task speeds; a custom Warp
+  impulse kernel only if the slow-dribble or tangential gaps (§3) turn out to matter.
+- Cameras: overhead + wrist InnoMaker U20CAM-720P (30 fps UVC, rolling shutter), long side along the tilt / blade
+  normal (§3). Ball only + paddle tag for calibration; arm state from encoders. Ball filter in pixel space per
+  camera, shared by sim and deployment.
+
+Open (default in brackets):
+
+- Extrinsic calibration: arm-moved paddle AprilTag or fixed base tag. [Arm-moved tag; it also catches joint offsets.]
