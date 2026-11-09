@@ -22,8 +22,10 @@ MUJOCO_GL=egl uv run scripts/render_camera_views.py      # camera previews for d
 MUJOCO_GL=egl uv run scripts/run_bouncer.py --envs 2 --lead 0 --video            # + build/bouncer.mp4
 uv run scripts/eval_task.py --agent zero        # RL env with the scripted bouncer alone (residual task baseline)
 uv run scripts/train.py PingPong-Bounce-Residual --env.scene.num-envs 4096       # PPO -> logs/rsl_rl/pingpong_residual/
-uv run scripts/eval_task.py --checkpoint logs/rsl_rl/pingpong_residual/<run>/model_<n>.pt
+uv run scripts/eval_task.py --checkpoint logs/rsl_rl/pingpong_residual/<run>/model_<n>.pt   # + bounce quality, residual size, timing
 uv run scripts/play.py PingPong-Bounce-Residual --checkpoint-file <model.pt>     # interactive viewer
+uv run scripts/export_policy.py logs/rsl_rl/pingpong_residual/<run>/model_<n>.pt --name <name>  # -> policies/<name>/ (ONNX + spec)
+uv run scripts/sim2sim.py policies/<name> --episodes 96 --workers 16              # exported policy on CPU MuJoCo, deploy code path
 ```
 
 ## Layout
@@ -35,12 +37,14 @@ uv run scripts/play.py PingPong-Bounce-Residual --checkpoint-file <model.pt>    
 | `src/pingpong_sim/harness.py` | Scene + Simulation without an RL env, for checks and system identification |
 | `src/pingpong_sim/servo_bus.py` | STS3215 bus (feetech-servo-sdk) and a MuJoCo stand-in with the same interface; tick ↔ sim-radian map |
 | `src/pingpong_sim/servo_model.py` | STS3215 model (BAM m6 physics) with per-world params, series gear-compliance joints, delays, current limit |
-| `src/pingpong_sim/servo_actuator.py` | mjlab actuator for the fitted servo model + per-reset randomization; `encoder_pos`/`encoder_vel` for observations |
+| `src/pingpong_sim/servo_actuator.py` | `ServoDrive` (fitted servo model + command delay + disturbance + per-reset randomization, no mjlab) and the mjlab actuator around it; `encoder_pos`/`encoder_vel` for observations |
 | `src/pingpong_sim/kinematics.py` | Batched torch FK/IK of the arm (blade face centre + normal, wrist camera pose), exact vs MuJoCo |
 | `src/pingpong_sim/bouncer.py` | Scripted bouncer: drag-aware impact prediction, aim from measured restitution, single-joint stroke, tracking feedforward |
 | `src/pingpong_sim/ball_filter.py` | Ball EKF shared with deployment: per-camera pixel + apparent-size updates, paddle-aware prediction through bounces, latency and out-of-order handling |
 | `src/pingpong_sim/camera_sim.py` | Simulated overhead + wrist cameras (30 fps rolling shutter, wide lens, latency, noise, blur, occlusion, dropouts, calibration error) producing the filter's detections |
-| `src/pingpong_sim/task/` | mjlab bounce task: `state.py` (per-env cameras → filter → bouncer, launch phase, true-state bounce events), `mdp.py` (events, action term, observations, rewards, terminations, metrics), `env_cfg.py` (env + PPO cfgs); registers `PingPong-Bounce-Residual` / `-Direct` |
+| `src/pingpong_sim/controller.py` | What the robot runs, shared with training: `BounceController` (encoder arm history → ball filter on camera detections → scripted bouncer; actor observation terms) and `OnnxPolicy` (exported actor + `policy.json` layout → servo goals) |
+| `src/pingpong_sim/task/` | mjlab bounce task: `state.py` (per-env simulated cameras → `BounceController`, launch phase, true-state bounce events), `mdp.py` (events, action term, observations, rewards, terminations, metrics), `env_cfg.py` (env + PPO cfgs); registers `PingPong-Bounce-Residual` / `-Direct` |
+| `policies/<name>/` | Exported policies: `policy.onnx` (actor + normalizer) and `policy.json` (observation layout, action mapping, joint order, limits, task geometry) |
 | `src/pingpong_sim/sysid.py` | Replays a recording in 2 s windows (n candidates × n windows worlds) and scores the encoder error |
 | `src/pingpong_sim/assets/so101/` | Menagerie `robotstudio_so101`, unmodified (commit 3abca2e, Apache-2.0) |
 | `src/pingpong_sim/assets/paddle/` | Holder, camera, paddle meshes in the holder frame (mm), from `cad/holder/export_sim_meshes.py` |
