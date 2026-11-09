@@ -235,9 +235,10 @@ Reference: Rhoban [`mjlab_microban`](https://github.com/Rhoban/mjlab_microban) (
       | Full 20 s at e 0.65–0.61 / 0.61–0.56 / 0.56–0.51 | 10 / 6 / 3 % | 89 / 94 / 91 % |
 
       The policy mostly fixes the aim (landing error ÷ 3.5) and stops depending on the restitution. It keeps the
-      bouncer's stroke and timing: residuals ~1° median, 2.5–3.7° p90 per joint (wrist_roll ≤ 2°), impacts within
-      a few ms of the scripted plan, joint speeds below the bouncer's (p99 ≤ 4.2 rad/s vs the 7.3 rad/s limit),
-      never at a joint limit. Apex runs ~35 mm low; 2 % of failures are the ball touching the arm, 2 % paddle tilt.
+      bouncer's stroke and timing: residuals ~1° median, 1.6–2.8° p90, 2–6° p99 per joint (measured against the
+      goal the action was added to), impacts within a few ms of the scripted plan, joint speeds below the
+      bouncer's (p99 ≤ 4.2 rad/s vs the 7.3 rad/s limit), never at a joint limit. Apex runs ~35 mm low; a few % of
+      failures are the ball touching the arm or the paddle tilting.
 - [x] Deploy-side controller shared with training (`sim/src/pingpong_sim/controller.py`): `BounceController`
       (encoder arm history → ball filter on detections → scripted bouncer; actor observation terms, which the
       mdp terms now call) and `OnnxPolicy` (`policy.json` layout and histories → onnxruntime → servo goals).
@@ -250,8 +251,11 @@ Reference: Rhoban [`mjlab_microban`](https://github.com/Rhoban/mjlab_microban) (
       13 / 31 mm, tracking 8.4 / 17.5 mm — the same as MuJoCo Warp (91.7 %, 40 / 44 / 47, 215 ± 55, 13 / 32, 8.3 / 17.3).
 - [x] Reward fix (`a88f97c`): per-bounce rewards × exp(−((apex − 0.25) / 0.1)²). The unweighted reward let
       `direct_v1` (stopped at iteration 164) dribble ~5 bounces/s just above the 5 cm minimum.
-- [ ] `residual_v2` (600 it, physics randomization, old reward weights) and `direct_v2` (1500 it, new weights):
-      evaluate against `residual_v1`.
+- [x] `residual_v2` (600 it, with the ball/paddle physics randomization, old reward weights): not better.
+      Same env, 256 worlds × 40 s: 88.0 % full 20 s (v1 in the same run: 91.3 %), bounces 22 / 44 / 47 (v1
+      40 / 44 / 47), apex 214 ± 55 mm, landing 12 / 29 mm, smaller residuals (p99 1.3–4.5°). sim2sim 90.6 %.
+      v1 already handled the randomized physics; **`residual_v1` stays the deployment candidate**, v2 exported too.
+- [ ] `direct_v2` (1500 it, apex-weighted rewards): evaluate against `residual_v1`.
 
 No camera rendering in the RL loop: train on the deployment filter fed by simulated detections.
 
