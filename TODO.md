@@ -255,7 +255,11 @@ Reference: Rhoban [`mjlab_microban`](https://github.com/Rhoban/mjlab_microban) (
       Same env, 256 worlds × 40 s: 88.0 % full 20 s (v1 in the same run: 91.3 %), bounces 22 / 44 / 47 (v1
       40 / 44 / 47), apex 214 ± 55 mm, landing 12 / 29 mm, smaller residuals (p99 1.3–4.5°). sim2sim 90.6 %.
       v1 already handled the randomized physics; **`residual_v1` stays the deployment candidate**, v2 exported too.
-- [ ] `direct_v2` (1500 it, apex-weighted rewards): evaluate against `residual_v1`.
+- [x] Bounce counting fix (`49da35d`): one bounce per fall (the ball must fall faster than 0.5 m/s between
+      counted bounces). `direct_v2` (stopped at ~760 it) had learned to tap the rising ball right after each hit:
+      90 counted per 20 s at a 214 mm apex where ~46 fit. Recounted with the fix (same episodes): 84.8 % full
+      20 s, 14 / 50 / 52 bounces, apex 214 ± 52 mm, landing 19 / 40 mm. `residual_v1` recounts unchanged.
+- [ ] `direct_v3` (1000 it, apex-weighted rewards, one bounce per fall): evaluate against `residual_v1`.
 
 No camera rendering in the RL loop: train on the deployment filter fed by simulated detections.
 
