@@ -19,8 +19,15 @@ one, which sees a bit more and curves at the edges.*
   but free-standing: the post stands **24 in (0.61 m) in front of the arm base**, on the arm's straight-ahead line,
   with the camera plate (tilted 25° down) facing back toward the arm. The lens ends up ~0.55 m above the table and
   ~18 cm in front of the bounce point.
+- **Print `cad/overhead_mount/cam_mount_top_rotatable.stl` instead of the stock `cam_mount_top.stl`.** The stock
+  plate's cross-shaped lens-holder cutout only lets the board sit with the picture's long edge across the arm. The
+  modified part adds the same cutout turned 90° (a plus-shaped opening), so the board fits either way; nothing
+  else changes (`cad/overhead_mount/make_rotatable_top.py` regenerates it from the upstream STL).
 - **Portrait, as seen from the camera's position**: as if you were filming the bounce with a phone held upright
-  from where the camera stands. The long edge of the picture runs from the near table up toward the arm.
+  from where the camera stands. The long edge of the picture runs from the near table up toward the arm. This
+  matters a lot: in the sim (fitted servos, 20 s) the scripted bouncer keeps the ball up in 62 % of runs with both
+  cameras (77 % overhead only) vs 31 % (11 %) with the overhead camera across, which sees the ball in ~40–50 % of
+  frames instead of ~80 %.
 - **Check in the preview** (`ffplay /dev/videoN`, `cheese`, ...): the arm and paddle come in from the **left or
   right edge**, and the ball moves **sideways** as it rises. If the arm comes in from the top or bottom edge, turn
   the board a quarter turn. The preview looks rotated on the monitor; that is correct — leave it, calibration

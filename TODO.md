@@ -248,7 +248,9 @@ rolling shutter, 102° × 59° (120° diagonal) lens with strong barrel distorti
   orientation, in the paddle's own frame.
 - **Mount both with the image long side along the tilt / blade normal** (overhead: long side pointing from the post
   toward the arm; wrist: image taller than wide with the blade level). Sim: ball in view in ~80 % / ~55 % of
-  frames vs ~45 % / ~25 % rotated 90°; bouncer survival 38 % vs 12 % (default randomization).
+  frames vs ~45 % / ~25 % rotated 90°; bouncer survival 38 % vs 12 % (default randomization). Overhead alone turned
+  (fitted servos, 20 s): 62 % → 31 % with both cameras, 77 % → 11 % overhead only. The stock overhead plate only
+  takes the board across: print `cad/overhead_mount/cam_mount_top_rotatable.stl` (plus-shaped cutout).
 - **Manual exposure** ≤ 2 ms with bright light (auto exposure indoors is 10–30 ms: 2–7 cm of blur at 2.4 m/s).
 - Ball pipeline (`sim/src/pingpong_sim/ball_filter.py`, shared with deployment; `camera_sim.py` for sim): per-camera
   EKF updates in undistorted image coordinates + apparent size (one camera alone fixes 3D), paddle-aware
