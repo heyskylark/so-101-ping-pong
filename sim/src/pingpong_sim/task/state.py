@@ -46,8 +46,11 @@ class TaskCfg:
     midflight_prob: float = 0.25  # episodes that start with the ball already flying
     midflight_vel: tuple[tuple[float, float], ...] = ((-0.2, 0.2), (-0.2, 0.2), (-1.5, 0.5))  # m/s
     joint_noise: float = 0.03  # rad, start pose around ready
-    # Bounce detection (true state): relative normal velocity flips from approach to departure near the face.
+    # Bounce detection (true state): relative normal velocity flips from approach to departure near the face, and
+    # the ball has fallen since the last counted bounce (one bounce per fall: a paddle chasing or double-tapping a
+    # rising ball also flips the relative velocity, and the direct policy learned to farm that).
     bounce_vn: float = 0.05  # m/s
+    min_fall: float = 0.5  # m/s, downward ball speed that arms the next bounce (5 cm dribble: ~1 m/s at impact)
     min_apex: float = 0.05  # m, outgoing rise for a bounce to count
 
     def controller_cfg(self) -> ControllerCfg:
@@ -68,22 +71,26 @@ def launch_ball(cfg: TaskCfg, target: torch.Tensor, k: int, now: float, device):
     return p, v, release
 
 
-def bounce_events(cfg: TaskCfg, target: torch.Tensor, p, v, face, normal, face_vel, prev_vn, released):
+def bounce_events(cfg: TaskCfg, target: torch.Tensor, p, v, face, normal, face_vel, prev_vn, armed, released):
     """True-state bounce detection for one control step: the ball's velocity relative to the paddle along the face
-    normal (`vn`) flips from approach to departure near the face. `target`: ball centre at impact. Returns a dict:
-    p, v, normal, released, vn (pass back as prev_vn next step), bounced, good (sends the ball >= min_apex up),
-    apex (outgoing rise), landing_err (drag-free return to the hitting plane vs target), lateral (contact offset)."""
+    normal (`vn`) flips from approach to departure near the face, and the ball is `armed` (it fell faster than
+    `min_fall` since the last counted bounce; the falling sample can't be the step before the bounce, which may
+    already be mid-contact). `target`: ball centre at impact. Returns a dict: p, v, normal, released, vn and armed
+    (pass back next step), bounced, good (sends the ball >= min_apex up), apex (outgoing rise), landing_err
+    (drag-free return to the hitting plane vs target), lateral (contact offset)."""
     rel = p - face
     vn = ((v - face_vel) * normal).sum(-1)
     gap = (rel * normal).sum(-1) - BALL_RADIUS
     lateral = (rel - (rel * normal).sum(-1, keepdim=True) * normal).norm(dim=-1)
-    bounced = released & (prev_vn < -cfg.bounce_vn) & (vn > cfg.bounce_vn) & (gap < 0.04) & (lateral < 0.09)
+    bounced = (released & armed & (prev_vn < -cfg.bounce_vn) & (vn > cfg.bounce_vn) & (gap < 0.04)
+               & (lateral < 0.09))
+    armed = (armed & ~bounced) | (v[:, 2] < -cfg.min_fall)
     vz = v[:, 2].clamp_min(0.0)
     apex = (p[:, 2] - target[2]) + torch.log1p(DRAG_K * vz * vz / G) / (2 * DRAG_K)
     landing = p[:, :2] + v[:, :2] * (2 * vz / G)[:, None]
     good = bounced & (apex >= cfg.min_apex)
-    return {"p": p, "v": v, "normal": normal, "released": released, "vn": vn, "bounced": bounced, "good": good,
-            "apex": apex, "landing_err": (landing - target[:2]).norm(dim=-1), "lateral": lateral}
+    return {"p": p, "v": v, "normal": normal, "released": released, "vn": vn, "armed": armed, "bounced": bounced,
+            "good": good, "apex": apex, "landing_err": (landing - target[:2]).norm(dim=-1), "lateral": lateral}
 
 
 def get(env) -> PingPongState:
@@ -127,6 +134,7 @@ class PingPongState:
         self._ready = False
         # True-state bookkeeping (`summary`).
         self.prev_vn = z1.clone()
+        self.armed = torch.zeros(n, dtype=torch.bool, device=dev)
         self.bounces = torch.zeros(n, dtype=torch.long, device=dev)
         self._summary_at = -1
         self.sum: dict[str, torch.Tensor] = {}
@@ -156,6 +164,7 @@ class PingPongState:
         self.ctrl.reset(env_ids, now)
         self._restart[env_ids] = True
         self.prev_vn[env_ids] = 0.0
+        self.armed[env_ids] = False
         self.bounces[env_ids] = 0
         self._ready = True
 
@@ -211,8 +220,8 @@ class PingPongState:
         p, v = self.ball_true()
         face, normal = self.face_true()
         _, _, face_vel = self.paddle_from_encoders()
-        self.sum = bounce_events(self.cfg, self.target, p, v, face, normal, face_vel, self.prev_vn,
+        self.sum = bounce_events(self.cfg, self.target, p, v, face, normal, face_vel, self.prev_vn, self.armed,
                                  self.now >= self.release)
-        self.prev_vn = self.sum["vn"]
+        self.prev_vn, self.armed = self.sum["vn"], self.sum["armed"]
         self.bounces += self.sum["good"].long()
         return self.sum

@@ -151,7 +151,7 @@ class World:
         self.ctrl.reset(self.ids, self.now)
         self.policy.reset()
         self.sense(restart=True)
-        prev_vn, t0 = torch.zeros(1), self.now
+        prev_vn, armed, t0 = torch.zeros(1), torch.zeros(1, dtype=torch.bool), self.now
         next_push = self.now + np.random.uniform(*self.push_every)
         bounces, hits, errs = 0, [], []
         cause = "time_out"
@@ -170,8 +170,8 @@ class World:
             self.dm.pull()
             servo = self.drive.servo
             _, _, face_vel = paddle_from_encoders(self.kin, servo.encoder(), servo.encoder_vel())
-            ev = bounce_events(task, self.ctrl.target, p, v, face, normal, face_vel, prev_vn, released)
-            prev_vn = ev["vn"]
+            ev = bounce_events(task, self.ctrl.target, p, v, face, normal, face_vel, prev_vn, armed, released)
+            prev_vn, armed = ev["vn"], ev["armed"]
             if ev["good"][0]:
                 bounces += 1
                 hits.append((float(ev["apex"][0]), float(ev["landing_err"][0]), float(ev["lateral"][0])))
