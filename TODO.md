@@ -225,9 +225,33 @@ Reference: Rhoban [`mjlab_microban`](https://github.com/Rhoban/mjlab_microban) (
 
       Failures split evenly between drops and drift; tracking error p50/p90 8 / 17 mm. Training curve flat after
       ~iteration 100 (bounces per finished episode 38–41); action std 0.30 → 0.07.
-- [ ] Next: train with the physics randomization (`residual_v2`); direct policy for comparison; sim2sim check in
-      CPU MuJoCo; ONNX export; check the policy's behaviour (residual size, stroke timing) before trusting it on
-      hardware.
+- [x] `residual_v1` behaviour (`eval_task.py`, same run as above, second seed: 91.7 % full episodes):
+
+      | Per bounce | Scripted bouncer | `residual_v1` |
+      |---|---|---|
+      | Apex (target 250 mm) | 230 ± 86 mm | 215 ± 55 mm |
+      | Next landing vs target, p50 / p90 | 44 / 117 mm | 13 / 32 mm |
+      | Contact off blade centre, p50 / p90 | 15 / 45 mm | 10 / 24 mm |
+      | Full 20 s at e 0.65–0.61 / 0.61–0.56 / 0.56–0.51 | 10 / 6 / 3 % | 89 / 94 / 91 % |
+
+      The policy mostly fixes the aim (landing error ÷ 3.5) and stops depending on the restitution. It keeps the
+      bouncer's stroke and timing: residuals ~1° median, 2.5–3.7° p90 per joint (wrist_roll ≤ 2°), impacts within
+      a few ms of the scripted plan, joint speeds below the bouncer's (p99 ≤ 4.2 rad/s vs the 7.3 rad/s limit),
+      never at a joint limit. Apex runs ~35 mm low; 2 % of failures are the ball touching the arm, 2 % paddle tilt.
+- [x] Deploy-side controller shared with training (`sim/src/pingpong_sim/controller.py`): `BounceController`
+      (encoder arm history → ball filter on detections → scripted bouncer; actor observation terms, which the
+      mdp terms now call) and `OnnxPolicy` (`policy.json` layout and histories → onnxruntime → servo goals).
+      Training behaviour unchanged by the extraction (identical eval output before/after).
+- [x] ONNX export (`sim/scripts/export_policy.py` → `sim/policies/<name>/policy.onnx` + `policy.json`, checked
+      against PyTorch: max |Δ| 9e-7).
+- [x] Sim-to-sim (`sim/scripts/sim2sim.py`): the exported policy on CPU MuJoCo (MuJoCo C, same scene and solver
+      options) through `BounceController` + `OnnxPolicy`, same servo model, cameras, launch, randomization and
+      terminations. `residual_v1`, 96 episodes: 92.7 % full 20 s, bounces 40 / 44 / 48, apex 214 ± 57 mm, landing
+      13 / 31 mm, tracking 8.4 / 17.5 mm — the same as MuJoCo Warp (91.7 %, 40 / 44 / 47, 215 ± 55, 13 / 32, 8.3 / 17.3).
+- [x] Reward fix (`a88f97c`): per-bounce rewards × exp(−((apex − 0.25) / 0.1)²). The unweighted reward let
+      `direct_v1` (stopped at iteration 164) dribble ~5 bounces/s just above the 5 cm minimum.
+- [ ] `residual_v2` (600 it, physics randomization, old reward weights) and `direct_v2` (1500 it, new weights):
+      evaluate against `residual_v1`.
 
 No camera rendering in the RL loop: train on the deployment filter fed by simulated detections.
 
