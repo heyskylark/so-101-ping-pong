@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.egg-info/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# Editors / OS
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Generated / downloaded
+cad/.cache/
+cad/holder/build/
+sim/build/
+sim/logs/
+sim/outputs/
+sim/wandb/
+
+# Large or third-party local files
+ping-pong-drop-vids/
+research/*.pdf
