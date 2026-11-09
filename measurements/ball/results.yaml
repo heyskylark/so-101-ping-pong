@@ -1,0 +1,4587 @@
+meta:
+  generated_by: measurements/ball/analyze.py
+  slowdown_K: 8.0
+  g: 9.8
+  ball:
+    mass_kg: 0.00275
+    diameter_m: 0.04
+  air_density: 1.2
+  velocities: real-time m/s; v_in, v_out are speeds (positive); e = v_out / v_in
+timescale_check:
+  method: each flight with >= 12 points and > 1 cm height fitted alone with a free scale S_f at K = 8; K_implied
+    = 8 * sqrt(S_ball / S_f) where S_ball = ball width / 40 mm
+  n_flights: 107
+  K_implied_median: 7.892
+  K_implied_std: 0.149
+  K_implied_min: 7.722
+  K_implied_max: 8.643
+  flights_flagged_inconsistent: []
+  S_v_over_S_ball_median: 1.0305
+  S_v_over_S_ball_range:
+  - 0.8311
+  - 1.0638
+  conclusion: 'no slow-mo ramps inside the analysed flights: all flight curvatures agree within a few %; K = 8 adopted.
+    The gravity scale S_v is ~3% larger than the ball-width scale (thresholded blob is slightly smaller than the
+    ball), which is why K_implied clusters at 7.89 instead of 8.0.'
+drag:
+  adopted_Cd: 0.497
+  adopted_Cd_err: 0.026
+  adopted_from: mean of per-video fits of the 16-25 in paddle videos (gravity + quadratic drag, free scale and perspective
+    term); error = std/sqrt(n)
+  terminal_velocity_m_s: 8.48
+  paddle_drops:
+    n_videos: 15
+    Cd_mean: 0.497
+    Cd_std: 0.099
+    Cd_mean_with_perspective_fixed_0: 0.424
+    Cd_std_with_perspective_fixed_0: 0.099
+    per_video:
+    - video: c-16in-1
+      Cd: 0.52
+      Cd_err: 0.038
+      gamma_per_m: 0.0753
+      rms_px: 0.62
+    - video: c-16in-2
+      Cd: 0.454
+      Cd_err: 0.041
+      gamma_per_m: 0.0577
+      rms_px: 0.67
+    - video: c-16in-3
+      Cd: 0.363
+      Cd_err: 0.035
+      gamma_per_m: 0.103
+      rms_px: 0.65
+    - video: c-16in-4
+      Cd: 0.349
+      Cd_err: 0.042
+      gamma_per_m: 0.0947
+      rms_px: 0.87
+    - video: c-16in-5
+      Cd: 0.606
+      Cd_err: 0.032
+      gamma_per_m: 0.1076
+      rms_px: 0.68
+    - video: c-19in-1
+      Cd: 0.614
+      Cd_err: 0.026
+      gamma_per_m: 0.1077
+      rms_px: 0.79
+    - video: c-19in-2
+      Cd: 0.58
+      Cd_err: 0.028
+      gamma_per_m: 0.1241
+      rms_px: 0.8
+    - video: c-19in-3
+      Cd: 0.543
+      Cd_err: 0.036
+      gamma_per_m: 0.091
+      rms_px: 0.71
+    - video: c-19in-4
+      Cd: 0.457
+      Cd_err: 0.028
+      gamma_per_m: 0.0971
+      rms_px: 0.83
+    - video: c-19in-5
+      Cd: 0.449
+      Cd_err: 0.031
+      gamma_per_m: 0.094
+      rms_px: 0.94
+    - video: c-25_25in-1
+      Cd: 0.493
+      Cd_err: 0.026
+      gamma_per_m: 0.0373
+      rms_px: 1.47
+    - video: c-25_25in-2
+      Cd: 0.328
+      Cd_err: 0.027
+      gamma_per_m: 0.0188
+      rms_px: 1.42
+    - video: c-25_25in-3
+      Cd: 0.656
+      Cd_err: 0.029
+      gamma_per_m: 0.06
+      rms_px: 1.34
+    - video: c-25_25in-4
+      Cd: 0.496
+      Cd_err: 0.029
+      gamma_per_m: 0.0252
+      rms_px: 1.49
+    - video: c-25_25in-5
+      Cd: 0.548
+      Cd_err: 0.026
+      gamma_per_m: 0.0333
+      rms_px: 1.37
+  six_ft_drops:
+    best_estimate:
+      Cd: 0.385
+      Cd_err: 0.087
+      Cd_per_video:
+      - 0.526
+      - 0.227
+      - 0.402
+      method: K = 8, S_v pinned to the ball-diameter scale (ball width / 40 mm) per video, no perspective term,
+        per-video fits; error = std/sqrt(3)
+    blob_size_correction_factor: 1.037
+    variants:
+      joint_no_pitch:
+        rms_px: 2.53
+        n_points: 274
+        Cd: 0.368
+        Cd_err_formal: 0.033
+        S_px_per_m:
+          6ft-1: 2960.7
+          6ft-2: 2672.2
+          6ft-3: 2853.3
+        S_over_S_ball:
+          6ft-1: 1.0036
+          6ft-2: 1.0084
+          6ft-3: 0.9672
+        corr_Cd_S:
+          6ft-1: -0.312
+          6ft-2: -0.119
+          6ft-3: -0.024
+        max_speed_m_s: 4.42
+      joint_pitch_free:
+        rms_px: 2.28
+        n_points: 274
+        Cd: 0.771
+        Cd_err_formal: 0.058
+        pitch_c: 0.0639
+        pitch_c_err: 0.008
+        implied_pitch_deg_if_f_1400px: -2.05
+        corr_Cd_pitch: 0.866
+        S_px_per_m:
+          6ft-1: 2856.3
+          6ft-2: 2633.5
+          6ft-3: 2843.9
+        S_over_S_ball:
+          6ft-1: 0.9682
+          6ft-2: 0.9938
+          6ft-3: 0.964
+        corr_Cd_S:
+          6ft-1: -0.773
+          6ft-2: -0.506
+          6ft-3: -0.115
+        max_speed_m_s: 4.37
+      joint_scale_pinned_to_ball_width_pitch_free:
+        rms_px: 2.77
+        n_points: 274
+        Cd: 0.509
+        Cd_err_formal: 0.043
+        pitch_c: 0.028
+        pitch_c_err: 0.0059
+        implied_pitch_deg_if_f_1400px: -0.9
+        corr_Cd_pitch: 0.624
+        S_px_per_m:
+          6ft-1: 2950.0
+          6ft-2: 2650.0
+          6ft-3: 2950.0
+        S_over_S_ball:
+          6ft-1: 1.0
+          6ft-2: 1.0
+          6ft-3: 1.0
+        max_speed_m_s: 4.3
+      joint_pitch_free_no_depth_correction:
+        rms_px: 2.27
+        n_points: 274
+        Cd: 0.945
+        Cd_err_formal: 0.057
+        pitch_c: 0.1022
+        pitch_c_err: 0.0079
+        implied_pitch_deg_if_f_1400px: -3.28
+        corr_Cd_pitch: 0.861
+        S_px_per_m:
+          6ft-1: 2860.4
+          6ft-2: 2645.3
+          6ft-3: 2874.5
+        S_over_S_ball:
+          6ft-1: 0.9696
+          6ft-2: 0.9982
+          6ft-3: 0.9744
+        corr_Cd_S:
+          6ft-1: -0.768
+          6ft-2: -0.495
+          6ft-3: -0.109
+        max_speed_m_s: 4.35
+      joint_scale_pinned_to_ball_width_no_pitch:
+        rms_px: 2.88
+        n_points: 274
+        Cd: 0.379
+        Cd_err_formal: 0.036
+        S_px_per_m:
+          6ft-1: 2950.0
+          6ft-2: 2650.0
+          6ft-3: 2950.0
+        S_over_S_ball:
+          6ft-1: 1.0
+          6ft-2: 1.0
+          6ft-3: 1.0
+        max_speed_m_s: 4.31
+      joint_scale_pinned_corrected_no_pitch:
+        rms_px: 4.21
+        n_points: 274
+        Cd: 0.226
+        Cd_err_formal: 0.054
+        S_px_per_m:
+          6ft-1: 3059.1
+          6ft-2: 2748.0
+          6ft-3: 3059.1
+        S_over_S_ball:
+          6ft-1: 1.037
+          6ft-2: 1.037
+          6ft-3: 1.037
+        max_speed_m_s: 4.22
+    per_video_no_pitch:
+      6ft-1:
+        rms_px: 2.63
+        n_points: 87
+        Cd: 0.549
+        Cd_err_formal: 0.065
+        S_px_per_m:
+          6ft-1: 2940.8
+        S_over_S_ball:
+          6ft-1: 0.9969
+        corr_Cd_S:
+          6ft-1: -0.527
+        max_speed_m_s: 4.28
+      6ft-2:
+        rms_px: 2.29
+        n_points: 99
+        Cd: 0.196
+        Cd_err_formal: 0.048
+        S_px_per_m:
+          6ft-2: 2677.5
+        S_over_S_ball:
+          6ft-2: 1.0104
+        corr_Cd_S:
+          6ft-2: -0.196
+        max_speed_m_s: 4.25
+      6ft-3:
+        rms_px: 2.41
+        n_points: 88
+        Cd: 0.425
+        Cd_err_formal: 0.054
+        S_px_per_m:
+          6ft-3: 2852.8
+        S_over_S_ball:
+          6ft-3: 0.967
+        corr_Cd_S:
+          6ft-3: -0.038
+        max_speed_m_s: 4.4
+    per_video_scale_pinned:
+      6ft-1:
+        rms_px: 2.62
+        n_points: 87
+        Cd: 0.526
+        Cd_err_formal: 0.055
+        S_px_per_m:
+          6ft-1: 2950.0
+        S_over_S_ball:
+          6ft-1: 1.0
+        max_speed_m_s: 4.28
+      6ft-2:
+        rms_px: 2.42
+        n_points: 99
+        Cd: 0.227
+        Cd_err_formal: 0.049
+        S_px_per_m:
+          6ft-2: 2650.0
+        S_over_S_ball:
+          6ft-2: 1.0
+        max_speed_m_s: 4.27
+      6ft-3:
+        rms_px: 3.37
+        n_points: 88
+        Cd: 0.402
+        Cd_err_formal: 0.078
+        S_px_per_m:
+          6ft-3: 2950.0
+        S_over_S_ball:
+          6ft-3: 1.0
+        max_speed_m_s: 4.29
+    literature_range:
+    - 0.4
+    - 0.5
+    conclusion: 'DEGENERATE / not well constrained. The fast falling ball (~4.4 m/s, ~50 px motion blur) has structured
+      +-5 px centroid residuals; Cd trades off against the scale and the camera-pitch (perspective) term: 0.37 (free
+      scale, no perspective), 0.77 (free scale, perspective free), 0.38 / 0.51 (scale pinned to ball diameter, without
+      / with perspective), 0.23 with the pinned scale x the blob-size correction 1.037 from the centre videos (fit
+      rms worsens to 4.21 px). The best-constrained drag value is the paddle-drop Cd (adopted); it lies in the literature
+      range 0.40-0.50 for a smooth sphere at Re ~ 1e4.'
+  parabola_bias:
+    synthetic_3p5_m_s:
+      cd: 0.49706666666666666
+      v_in_true: 3.5
+      e_true: 0.55
+      drop_height_m: 0.6852
+      v_in_parabola: 3.5743
+      v_out_parabola: 1.9029
+      e_parabola: 0.5324
+      v_in_bias_pct: 2.12
+      v_out_bias_pct: -1.15
+      e_bias: -0.0176
+    synthetic_2p0_m_s:
+      cd: 0.49706666666666666
+      v_in_true: 2.0
+      e_true: 0.6
+      drop_height_m: 0.21
+      v_in_parabola: 2.0131
+      v_out_parabola: 1.1941
+      e_parabola: 0.5931
+      v_in_bias_pct: 0.65
+      v_out_bias_pct: -0.5
+      e_bias: -0.0069
+    measured_drag_minus_nodrag:
+      mean_rel_change_v_in_all: -0.0084
+      mean_change_e_all: 0.0068
+      mean_rel_change_v_in_above_2p5: -0.0336
+      mean_change_e_above_2p5: 0.0224
+      note: same segmentation refitted with Cd = 0 (gravity-only, shared scale)
+restitution:
+  n_impacts_used: 119
+  n_impacts_rejected: 9
+  rejected_by_reason:
+    neighbour flight apex < 3 mm (micro-bounce/rolling): 5
+    neighbour flight has < 8 points: 3
+    neighbour flight not described by free fall (rolling/mis-tracked): 1
+  linear:
+    e0: 0.737
+    e0_err: 0.0079
+    e1_per_m_s: -0.0671
+    e1_err: 0.0054
+    resid_std: 0.0485
+    cov_e0_e1: -3.5e-05
+    form: e(v) = e0 + e1 * v_in
+  saturating:
+    e_inf: 0.5775
+    A: 0.3734
+    v0_m_s: 0.539
+    errs:
+    - 0.0083
+    - 0.0358
+    - 0.0726
+    resid_std: 0.0369
+    form: e(v) = e_inf + A * exp(-v_in / v0)
+    note: describes the flattening above ~2.5 m/s better than the linear fit; preferred for extrapolation to 3-4
+      m/s
+  constant:
+    e: 0.6559
+    sem: 0.0068
+    std: 0.0738
+  binned:
+  - v_range:
+    - 0.2
+    - 0.5
+    n: 25
+    v_mean: 0.409
+    e_mean: 0.7468
+    e_std: 0.0655
+    e_sem: 0.0131
+  - v_range:
+    - 0.5
+    - 1.0
+    n: 40
+    v_mean: 0.745
+    e_mean: 0.6752
+    e_std: 0.0459
+    e_sem: 0.0073
+  - v_range:
+    - 1.0
+    - 1.5
+    n: 17
+    v_mean: 1.207
+    e_mean: 0.6315
+    e_std: 0.0285
+    e_sem: 0.0069
+  - v_range:
+    - 1.5
+    - 2.0
+    n: 17
+    v_mean: 1.656
+    e_mean: 0.598
+    e_std: 0.0307
+    e_sem: 0.0075
+  - v_range:
+    - 2.0
+    - 2.5
+    n: 5
+    v_mean: 2.16
+    e_mean: 0.5914
+    e_std: 0.0136
+    e_sem: 0.0061
+  - v_range:
+    - 2.5
+    - 3.0
+    n: 10
+    v_mean: 2.745
+    e_mean: 0.568
+    e_std: 0.0143
+    e_sem: 0.0045
+  - v_range:
+    - 3.0
+    - 3.6
+    n: 5
+    v_mean: 3.401
+    e_mean: 0.5662
+    e_std: 0.0082
+    e_sem: 0.0037
+  per_nominal_height:
+    4in:
+      n_impacts: 12
+      n_first_impacts: 3
+      first_impact_v_in_mean: 1.176
+      first_impact_v_in_std: 0.044
+      v_free_fall_from_nominal_height: 1.411
+      first_impact_e_mean: 0.62
+      first_impact_e_std: 0.013
+    8in:
+      n_impacts: 19
+      n_first_impacts: 5
+      first_impact_v_in_mean: 1.571
+      first_impact_v_in_std: 0.071
+      v_free_fall_from_nominal_height: 1.996
+      first_impact_e_mean: 0.6128
+      first_impact_e_std: 0.0118
+    12in:
+      n_impacts: 18
+      n_first_impacts: 5
+      first_impact_v_in_mean: 2.16
+      first_impact_v_in_std: 0.057
+      v_free_fall_from_nominal_height: 2.444
+      first_impact_e_mean: 0.5914
+      first_impact_e_std: 0.0136
+    16in:
+      n_impacts: 20
+      n_first_impacts: 5
+      first_impact_v_in_mean: 2.59
+      first_impact_v_in_std: 0.066
+      v_free_fall_from_nominal_height: 2.822
+      first_impact_e_mean: 0.5754
+      first_impact_e_std: 0.0054
+    19in:
+      n_impacts: 22
+      n_first_impacts: 5
+      first_impact_v_in_mean: 2.9
+      first_impact_v_in_std: 0.025
+      v_free_fall_from_nominal_height: 3.076
+      first_impact_e_mean: 0.5605
+      first_impact_e_std: 0.0171
+    25.25in:
+      n_impacts: 28
+      n_first_impacts: 5
+      first_impact_v_in_mean: 3.401
+      first_impact_v_in_std: 0.025
+      v_free_fall_from_nominal_height: 3.545
+      first_impact_e_mean: 0.5662
+      first_impact_e_std: 0.0082
+  lateral_drift:
+    median_abs_vx_m_s: 0.016
+    p95_abs_vx_m_s: 0.049
+    max_abs_vx_m_s: 0.069
+    median_abs_vx_over_v_in: 0.013
+    median_abs_change_vx_at_impact_m_s: 0.006
+    note: x velocity from a linear fit per flight; image x only (depth motion not measured for centre drops)
+  note: formal per-impact errors (e_err) are much smaller than the scatter; the scatter (resid_std) is the honest
+    per-impact uncertainty (impact location on the blade, ball spin, paddle vibration from the previous bounce).
+angled_drops:
+  method: 'Velocities at impact from per-flight fits in camera-frame metres (apparent-size depth correction). Primary
+    result C: blade tilt measured in the image (blade major-axis rotation minus tape-measure rotation, relative
+    to the level blade of the centre videos; tilt axis assumed along the viewing direction) -> normal/tangential
+    components, e_n and tangential ratio r_t = v_t,out / v_t,in, with ranges for tilt +- tilt_err. Trajectory-only
+    closures (blade normal in the plane of v_in, v_out): A assumes e_n = saturating centre fit -> tilt, r_t; B assumes
+    r_t = 1 -> tilt, e_n.'
+  image_tilt:
+    level_reference_blade_minus_tape_deg: 0.25
+    level_reference_std_deg: 0.73
+    systematic_deg: 2.0
+    per_video:
+      angle-1:
+        blade_axis_cw_deg: 11.4
+        tape_cw_deg: -5.16
+        blade_aspect: 0.492
+        tilt_deg: 16.3
+        tilt_err_deg: 2.13
+      angle-2:
+        blade_axis_cw_deg: 11.93
+        tape_cw_deg: -5.37
+        blade_aspect: 0.496
+        tilt_deg: 17.04
+        tilt_err_deg: 2.13
+  videos:
+    angle-1:
+      name: angle-1
+      impact_t_video: 4.7327
+      n_points_in: 63
+      n_points_out: 36
+      kappa_gravity_scale_correction:
+        incoming: 1.043
+        outgoing: 1.031
+      ball_width_px_in_out:
+      - 92.0
+      - 96.0
+      v_in_xyz_m_s:
+      - 0.079
+      - -3.549
+      - -0.022
+      v_out_xyz_m_s:
+      - 0.89
+      - 1.635
+      - 0.098
+      axes: x = image right, y = up, z = away from camera (z from apparent-size change, f assumed 1400 px)
+      C_tilt_measured_from_image:
+        tilt_deg: 16.3
+        v_n_in: 3.384
+        v_n_out: 1.819
+        e_normal: 0.538
+        v_t_in: 1.072
+        v_t_out: 0.393
+        tangential_ratio: 0.366
+        out_of_plane_tangential_m_s: 0.106
+        tilt_err_deg: 2.13
+        e_normal_range:
+        - 0.527
+        - 0.548
+        tangential_ratio_range:
+        - 0.272
+        - 0.486
+        e_center_fit_at_this_v_n: 0.578
+        rolling_without_slip_reference: 0.6
+      trajectory_only_with_depth:
+        A_e_from_center_fit:
+          closure: e_n = e_center(v_n)
+          tilt_from_horizontal_deg: 24.0
+          normal_xyz:
+          - 0.404
+          - 0.914
+          - 0.046
+          v_n_in: 3.212
+          v_n_out: 1.858
+          e_normal: 0.578
+          v_t_in: -1.513
+          v_t_out: -0.153
+          tangential_ratio: 0.101
+        B_no_tangential_loss:
+          closure: tangential ratio = 1
+          tilt_from_horizontal_deg: 9.0
+          normal_xyz:
+          - 0.154
+          - 0.988
+          - 0.023
+          v_n_in: 3.494
+          v_n_out: 1.755
+          e_normal: 0.502
+          v_t_in: -0.629
+          v_t_out: -0.629
+          tangential_ratio: 1.0
+      trajectory_only_image_plane:
+        A_e_from_center_fit:
+          closure: e_n = e_center(v_n)
+          tilt_from_horizontal_deg: 24.1
+          normal_xyz:
+          - 0.408
+          - 0.913
+          - 0.0
+          v_n_in: 3.208
+          v_n_out: 1.856
+          e_normal: 0.578
+          v_t_in: -1.52
+          v_t_out: -0.145
+          tangential_ratio: 0.096
+        B_no_tangential_loss:
+          closure: tangential ratio = 1
+          tilt_from_horizontal_deg: 8.9
+          normal_xyz:
+          - 0.154
+          - 0.988
+          - 0.0
+          v_n_in: 3.494
+          v_n_out: 1.753
+          e_normal: 0.502
+          v_t_in: -0.626
+          v_t_out: -0.626
+          tangential_ratio: 1.0
+    angle-2:
+      name: angle-2
+      impact_t_video: 4.2908
+      n_points_in: 84
+      n_points_out: 33
+      kappa_gravity_scale_correction:
+        incoming: 1.018
+        outgoing: 0.967
+      ball_width_px_in_out:
+      - 91.0
+      - 93.0
+      v_in_xyz_m_s:
+      - 0.058
+      - -3.433
+      - 0.038
+      v_out_xyz_m_s:
+      - 0.981
+      - 1.695
+      - -0.083
+      axes: x = image right, y = up, z = away from camera (z from apparent-size change, f assumed 1400 px)
+      C_tilt_measured_from_image:
+        tilt_deg: 17.04
+        v_n_in: 3.265
+        v_n_out: 1.908
+        e_normal: 0.584
+        v_t_in: 1.062
+        v_t_out: 0.438
+        tangential_ratio: 0.412
+        out_of_plane_tangential_m_s: 0.099
+        tilt_err_deg: 2.13
+        e_normal_range:
+        - 0.572
+        - 0.597
+        tangential_ratio_range:
+        - 0.31
+        - 0.54
+        e_center_fit_at_this_v_n: 0.578
+        rolling_without_slip_reference: 0.6
+      trajectory_only_with_depth:
+        A_e_from_center_fit:
+          closure: e_n = e_center(v_n)
+          tilt_from_horizontal_deg: 15.9
+          normal_xyz:
+          - 0.273
+          - 0.962
+          - -0.029
+          v_n_in: 3.286
+          v_n_out: 1.9
+          e_normal: 0.578
+          v_t_in: -0.996
+          v_t_out: -0.481
+          tangential_ratio: 0.483
+        B_no_tangential_loss:
+          closure: tangential ratio = 1
+          tilt_from_horizontal_deg: 10.3
+          normal_xyz:
+          - 0.177
+          - 0.984
+          - -0.023
+          v_n_in: 3.368
+          v_n_out: 1.844
+          e_normal: 0.547
+          v_t_in: -0.666
+          v_t_out: -0.666
+          tangential_ratio: 1.0
+      trajectory_only_image_plane:
+        A_e_from_center_fit:
+          closure: e_n = e_center(v_n)
+          tilt_from_horizontal_deg: 16.0
+          normal_xyz:
+          - 0.275
+          - 0.961
+          - 0.0
+          v_n_in: 3.285
+          v_n_out: 1.9
+          e_normal: 0.578
+          v_t_in: -1.0
+          v_t_out: -0.477
+          tangential_ratio: 0.477
+        B_no_tangential_loss:
+          closure: tangential ratio = 1
+          tilt_from_horizontal_deg: 10.2
+          normal_xyz:
+          - 0.177
+          - 0.984
+          - 0.0
+          v_n_in: 3.368
+          v_n_out: 1.842
+          e_normal: 0.547
+          v_t_in: -0.665
+          v_t_out: -0.665
+          tangential_ratio: 1.0
+  identifiability: From the trajectory alone one bounce gives 2 numbers in the bounce plane for 3 unknowns (tilt,
+    e_n, r_t); the image-measured tilt closes the system. r_t is very sensitive to the tilt (see tangential_ratio_range).
+    Ball spin is not observed. The depth component comes from apparent-size change with an assumed focal length
+    (1400 px +-10%) and is small (|v_z| < 0.1 m/s), so the bounce is nearly in the image plane. Only two videos,
+    single bounce each.
+videos:
+  c-12in-1:
+    name: c-12in-1
+    n_detections_off_path_dropped: 0
+    ball_width_px: 75.0
+    S_ball_px_per_m: 1875.0
+    S_v_px_per_m: 1944.4
+    S_v_err: 5.6
+    S_v_over_S_ball: 1.037
+    height_span_m: 0.234
+    gamma_per_m: 0.0114
+    gamma_err: 0.0254
+    gamma_note: null
+    fit_rms_px: 0.86
+    flights:
+    - kind: drop
+      n_points: 51
+      t_video:
+      - 1.5033
+      - 3.3367
+      apex_height_mm: 226.4
+      S_f_px_per_m: 1969.4
+      S_f_err: 5.9
+      K_implied_by_ball_diameter: 7.806
+      vx_m_s: 0.02
+      timescale_ok: true
+    - kind: bounce
+      n_points: 54
+      t_video:
+      - 3.37
+      - 5.3367
+      apex_height_mm: 73.1
+      S_f_px_per_m: 1932.3
+      S_f_err: 3.3
+      K_implied_by_ball_diameter: 7.881
+      vx_m_s: -0.017
+      timescale_ok: true
+    - kind: bounce
+      n_points: 31
+      t_video:
+      - 5.37
+      - 6.5033
+      apex_height_mm: 24.2
+      S_f_px_per_m: 1873.1
+      S_f_err: 8.7
+      K_implied_by_ball_diameter: 8.004
+      vx_m_s: -0.028
+      timescale_ok: true
+    - kind: bounce
+      n_points: 20
+      t_video:
+      - 6.5033
+      - 7.2367
+      apex_height_mm: 9.3
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: -0.034
+    - kind: bounce
+      n_points: 15
+      t_video:
+      - 7.2367
+      - 7.7367
+      apex_height_mm: 5.2
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: -0.041
+    n_flights_found: 5
+    n_flights_used: 5
+    flights_rejected: []
+    drop_check:
+      nominal_release_height_m: 0.3048
+      v_free_fall_from_nominal: 2.444
+      v_in_measured: 2.0934
+      fitted_fall_height_m: 0.2264
+  c-12in-2:
+    name: c-12in-2
+    n_detections_off_path_dropped: 0
+    ball_width_px: 78.0
+    S_ball_px_per_m: 1950.0
+    S_v_px_per_m: 1991.8
+    S_v_err: 4.3
+    S_v_over_S_ball: 1.0214
+    height_span_m: 0.255
+    gamma_per_m: 0.1074
+    gamma_err: 0.0172
+    gamma_note: null
+    fit_rms_px: 0.67
+    flights:
+    - kind: drop
+      n_points: 51
+      t_video:
+      - 2.1
+      - 4.0033
+      apex_height_mm: 256.3
+      S_f_px_per_m: 2002.5
+      S_f_err: 4.8
+      K_implied_by_ball_diameter: 7.894
+      vx_m_s: -0.004
+      timescale_ok: true
+    - kind: bounce
+      n_points: 57
+      t_video:
+      - 4.0367
+      - 6.1033
+      apex_height_mm: 83.3
+      S_f_px_per_m: 1987.8
+      S_f_err: 3.5
+      K_implied_by_ball_diameter: 7.924
+      vx_m_s: -0.021
+      timescale_ok: true
+    - kind: bounce
+      n_points: 36
+      t_video:
+      - 6.1367
+      - 7.4033
+      apex_height_mm: 30.5
+      S_f_px_per_m: 1966.1
+      S_f_err: 9.4
+      K_implied_by_ball_diameter: 7.967
+      vx_m_s: -0.033
+      timescale_ok: true
+    - kind: bounce
+      n_points: 20
+      t_video:
+      - 7.47
+      - 8.2367
+      apex_height_mm: 10.2
+      S_f_px_per_m: 1959.1
+      S_f_err: 28.2
+      K_implied_by_ball_diameter: 7.981
+      vx_m_s: -0.034
+      timescale_ok: true
+    n_flights_found: 5
+    n_flights_used: 4
+    flights_rejected:
+    - t_video:
+      - 8.237
+      - 8.503
+      reason: too low (1.7 mm)
+    drop_check:
+      nominal_release_height_m: 0.3048
+      v_free_fall_from_nominal: 2.444
+      v_in_measured: 2.1994
+      fitted_fall_height_m: 0.2563
+  c-12in-3:
+    name: c-12in-3
+    n_detections_off_path_dropped: 0
+    ball_width_px: 76.0
+    S_ball_px_per_m: 1900.0
+    S_v_px_per_m: 1941.9
+    S_v_err: 4.2
+    S_v_over_S_ball: 1.022
+    height_span_m: 0.264
+    gamma_per_m: 0.0336
+    gamma_err: 0.0166
+    gamma_note: null
+    fit_rms_px: 0.77
+    flights:
+    - kind: drop
+      n_points: 54
+      t_video:
+      - 1.1667
+      - 3.1333
+      apex_height_mm: 261.5
+      S_f_px_per_m: 1965.6
+      S_f_err: 4.9
+      K_implied_by_ball_diameter: 7.865
+      vx_m_s: 0.015
+      timescale_ok: true
+    - kind: bounce
+      n_points: 60
+      t_video:
+      - 3.1667
+      - 5.3333
+      apex_height_mm: 90.9
+      S_f_px_per_m: 1932.8
+      S_f_err: 2.5
+      K_implied_by_ball_diameter: 7.932
+      vx_m_s: 0.019
+      timescale_ok: true
+    - kind: bounce
+      n_points: 35
+      t_video:
+      - 5.3667
+      - 6.7
+      apex_height_mm: 34.1
+      S_f_px_per_m: 1896.8
+      S_f_err: 5.1
+      K_implied_by_ball_diameter: 8.007
+      vx_m_s: 0.029
+      timescale_ok: true
+    - kind: bounce
+      n_points: 26
+      t_video:
+      - 6.7
+      - 7.6333
+      apex_height_mm: 15.4
+      S_f_px_per_m: 1838.3
+      S_f_err: 24.3
+      K_implied_by_ball_diameter: 8.133
+      vx_m_s: 0.03
+      timescale_ok: true
+    - kind: bounce
+      n_points: 16
+      t_video:
+      - 7.6333
+      - 8.2367
+      apex_height_mm: 6.6
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: 0.031
+    n_flights_found: 6
+    n_flights_used: 5
+    flights_rejected:
+    - t_video:
+      - 8.237
+      - 8.437
+      reason: too few points (7)
+    drop_check:
+      nominal_release_height_m: 0.3048
+      v_free_fall_from_nominal: 2.444
+      v_in_measured: 2.235
+      fitted_fall_height_m: 0.2615
+  c-12in-4:
+    name: c-12in-4
+    n_detections_off_path_dropped: 0
+    ball_width_px: 76.0
+    S_ball_px_per_m: 1900.0
+    S_v_px_per_m: 1928.8
+    S_v_err: 4.4
+    S_v_over_S_ball: 1.0152
+    height_span_m: 0.248
+    gamma_per_m: -0.0103
+    gamma_err: 0.0181
+    gamma_note: null
+    fit_rms_px: 0.7
+    flights:
+    - kind: drop
+      n_points: 50
+      t_video:
+      - 1.9
+      - 3.8
+      apex_height_mm: 244.0
+      S_f_px_per_m: 1942.4
+      S_f_err: 5.8
+      K_implied_by_ball_diameter: 7.912
+      vx_m_s: -0.007
+      timescale_ok: true
+    - kind: bounce
+      n_points: 55
+      t_video:
+      - 3.8333
+      - 5.8
+      apex_height_mm: 78.1
+      S_f_px_per_m: 1925.2
+      S_f_err: 2.3
+      K_implied_by_ball_diameter: 7.947
+      vx_m_s: 0.009
+      timescale_ok: true
+    - kind: bounce
+      n_points: 33
+      t_video:
+      - 5.8333
+      - 7.0667
+      apex_height_mm: 28.4
+      S_f_px_per_m: 1870.1
+      S_f_err: 9.8
+      K_implied_by_ball_diameter: 8.064
+      vx_m_s: 0.014
+      timescale_ok: true
+    - kind: bounce
+      n_points: 25
+      t_video:
+      - 7.0667
+      - 7.9333
+      apex_height_mm: 12.7
+      S_f_px_per_m: 1881.4
+      S_f_err: 22.8
+      K_implied_by_ball_diameter: 8.04
+      vx_m_s: 0.026
+      timescale_ok: true
+    - kind: bounce
+      n_points: 16
+      t_video:
+      - 7.9333
+      - 8.5033
+      apex_height_mm: 4.3
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: 0.033
+    n_flights_found: 5
+    n_flights_used: 5
+    flights_rejected: []
+    drop_check:
+      nominal_release_height_m: 0.3048
+      v_free_fall_from_nominal: 2.444
+      v_in_measured: 2.1475
+      fitted_fall_height_m: 0.244
+  c-12in-5:
+    name: c-12in-5
+    n_detections_off_path_dropped: 3
+    ball_width_px: 76.0
+    S_ball_px_per_m: 1900.0
+    S_v_px_per_m: 1960.8
+    S_v_err: 4.6
+    S_v_over_S_ball: 1.032
+    height_span_m: 0.24
+    gamma_per_m: 0.0456
+    gamma_err: 0.0202
+    gamma_note: null
+    fit_rms_px: 0.69
+    flights:
+    - kind: drop
+      n_points: 50
+      t_video:
+      - 1.1333
+      - 2.97
+      apex_height_mm: 235.7
+      S_f_px_per_m: 1988.5
+      S_f_err: 5.0
+      K_implied_by_ball_diameter: 7.82
+      vx_m_s: 0.016
+      timescale_ok: true
+    - kind: bounce
+      n_points: 57
+      t_video:
+      - 3.0033
+      - 5.0367
+      apex_height_mm: 79.6
+      S_f_px_per_m: 1951.4
+      S_f_err: 2.0
+      K_implied_by_ball_diameter: 7.894
+      vx_m_s: 0.003
+      timescale_ok: true
+    - kind: bounce
+      n_points: 34
+      t_video:
+      - 5.07
+      - 6.37
+      apex_height_mm: 32.0
+      S_f_px_per_m: 1906.5
+      S_f_err: 7.0
+      K_implied_by_ball_diameter: 7.986
+      vx_m_s: 0.005
+      timescale_ok: true
+    - kind: bounce
+      n_points: 21
+      t_video:
+      - 6.4033
+      - 7.27
+      apex_height_mm: 14.6
+      S_f_px_per_m: 1866.6
+      S_f_err: 19.5
+      K_implied_by_ball_diameter: 8.071
+      vx_m_s: 0.006
+      timescale_ok: true
+    n_flights_found: 5
+    n_flights_used: 4
+    flights_rejected:
+    - t_video:
+      - 7.47
+      - 7.67
+      reason: too few points (4)
+    drop_check:
+      nominal_release_height_m: 0.3048
+      v_free_fall_from_nominal: 2.444
+      v_in_measured: 2.125
+      fitted_fall_height_m: 0.2357
+  c-16in-1:
+    name: c-16in-1
+    n_detections_off_path_dropped: 0
+    ball_width_px: 74.0
+    S_ball_px_per_m: 1850.0
+    S_v_px_per_m: 1925.6
+    S_v_err: 2.7
+    S_v_over_S_ball: 1.0409
+    height_span_m: 0.347
+    gamma_per_m: 0.074
+    gamma_err: 0.0089
+    gamma_note: null
+    fit_rms_px: 0.62
+    flights:
+    - kind: drop
+      n_points: 59
+      t_video:
+      - 1.47
+      - 3.67
+      apex_height_mm: 341.6
+      S_f_px_per_m: 1924.4
+      S_f_err: 3.7
+      K_implied_by_ball_diameter: 7.844
+      vx_m_s: 0.004
+      timescale_ok: true
+    - kind: bounce
+      n_points: 64
+      t_video:
+      - 3.7033
+      - 6.0033
+      apex_height_mm: 102.6
+      S_f_px_per_m: 1927.5
+      S_f_err: 2.4
+      K_implied_by_ball_diameter: 7.837
+      vx_m_s: -0.022
+      timescale_ok: true
+    - kind: bounce
+      n_points: 38
+      t_video:
+      - 6.0367
+      - 7.37
+      apex_height_mm: 34.9
+      S_f_px_per_m: 1915.9
+      S_f_err: 4.3
+      K_implied_by_ball_diameter: 7.861
+      vx_m_s: -0.034
+      timescale_ok: true
+    - kind: bounce
+      n_points: 21
+      t_video:
+      - 7.4033
+      - 8.17
+      apex_height_mm: 11.4
+      S_f_px_per_m: 1854.1
+      S_f_err: 29.3
+      K_implied_by_ball_diameter: 7.991
+      vx_m_s: -0.034
+      timescale_ok: true
+    - kind: bounce
+      n_points: 14
+      t_video:
+      - 8.17
+      - 8.6367
+      apex_height_mm: 4.9
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: -0.036
+    n_flights_found: 5
+    n_flights_used: 5
+    flights_rejected: []
+    drop_check:
+      nominal_release_height_m: 0.4064
+      v_free_fall_from_nominal: 2.822
+      v_in_measured: 2.5357
+      fitted_fall_height_m: 0.3416
+  c-16in-2:
+    name: c-16in-2
+    n_detections_off_path_dropped: 0
+    ball_width_px: 72.0
+    S_ball_px_per_m: 1800.0
+    S_v_px_per_m: 1881.1
+    S_v_err: 2.8
+    S_v_over_S_ball: 1.045
+    height_span_m: 0.34
+    gamma_per_m: 0.0599
+    gamma_err: 0.0088
+    gamma_note: null
+    fit_rms_px: 0.67
+    flights:
+    - kind: drop
+      n_points: 62
+      t_video:
+      - 0.0333
+      - 2.3
+      apex_height_mm: 332.1
+      S_f_px_per_m: 1883.8
+      S_f_err: 4.0
+      K_implied_by_ball_diameter: 7.82
+      vx_m_s: 0.018
+      timescale_ok: true
+    - kind: bounce
+      n_points: 62
+      t_video:
+      - 2.3333
+      - 4.6
+      apex_height_mm: 97.0
+      S_f_px_per_m: 1880.7
+      S_f_err: 2.2
+      K_implied_by_ball_diameter: 7.827
+      vx_m_s: -0.014
+      timescale_ok: true
+    - kind: bounce
+      n_points: 36
+      t_video:
+      - 4.6333
+      - 5.9333
+      apex_height_mm: 31.3
+      S_f_px_per_m: 1852.8
+      S_f_err: 5.2
+      K_implied_by_ball_diameter: 7.885
+      vx_m_s: -0.01
+      timescale_ok: true
+    - kind: bounce
+      n_points: 22
+      t_video:
+      - 5.9667
+      - 6.7333
+      apex_height_mm: 12.1
+      S_f_px_per_m: 1800.2
+      S_f_err: 27.7
+      K_implied_by_ball_diameter: 8.0
+      vx_m_s: -0.01
+      timescale_ok: true
+    - kind: bounce
+      n_points: 14
+      t_video:
+      - 6.8033
+      - 7.27
+      apex_height_mm: 6.1
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: -0.008
+    - kind: bounce
+      n_points: 11
+      t_video:
+      - 7.3367
+      - 7.67
+      apex_height_mm: 4.4
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: -0.001
+    n_flights_found: 6
+    n_flights_used: 6
+    flights_rejected: []
+    drop_check:
+      nominal_release_height_m: 0.4064
+      v_free_fall_from_nominal: 2.822
+      v_in_measured: 2.5189
+      fitted_fall_height_m: 0.3321
+  c-16in-3:
+    name: c-16in-3
+    n_detections_off_path_dropped: 0
+    ball_width_px: 76.0
+    S_ball_px_per_m: 1900.0
+    S_v_px_per_m: 1959.1
+    S_v_err: 2.8
+    S_v_over_S_ball: 1.0311
+    height_span_m: 0.355
+    gamma_per_m: 0.1108
+    gamma_err: 0.008
+    gamma_note: null
+    fit_rms_px: 0.67
+    flights:
+    - kind: drop
+      n_points: 63
+      t_video:
+      - 1.0667
+      - 3.3333
+      apex_height_mm: 358.3
+      S_f_px_per_m: 1967.2
+      S_f_err: 3.5
+      K_implied_by_ball_diameter: 7.862
+      vx_m_s: 0.024
+      timescale_ok: true
+    - kind: bounce
+      n_points: 64
+      t_video:
+      - 3.3667
+      - 5.77
+      apex_height_mm: 113.4
+      S_f_px_per_m: 1952.3
+      S_f_err: 2.4
+      K_implied_by_ball_diameter: 7.892
+      vx_m_s: -0.031
+      timescale_ok: true
+    - kind: bounce
+      n_points: 41
+      t_video:
+      - 5.8033
+      - 7.3033
+      apex_height_mm: 44.3
+      S_f_px_per_m: 1957.6
+      S_f_err: 3.8
+      K_implied_by_ball_diameter: 7.881
+      vx_m_s: -0.026
+      timescale_ok: true
+    - kind: bounce
+      n_points: 26
+      t_video:
+      - 7.3367
+      - 8.27
+      apex_height_mm: 16.6
+      S_f_px_per_m: 1994.5
+      S_f_err: 17.2
+      K_implied_by_ball_diameter: 7.808
+      vx_m_s: -0.03
+      timescale_ok: true
+    - kind: bounce
+      n_points: 18
+      t_video:
+      - 8.3033
+      - 8.9367
+      apex_height_mm: 5.9
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: -0.027
+    n_flights_found: 6
+    n_flights_used: 5
+    flights_rejected:
+    - t_video:
+      - 8.937
+      - 9.37
+      reason: too low (1.1 mm)
+    drop_check:
+      nominal_release_height_m: 0.4064
+      v_free_fall_from_nominal: 2.822
+      v_in_measured: 2.5828
+      fitted_fall_height_m: 0.3583
+  c-16in-4:
+    name: c-16in-4
+    n_detections_off_path_dropped: 0
+    ball_width_px: 72.0
+    S_ball_px_per_m: 1800.0
+    S_v_px_per_m: 1914.9
+    S_v_err: 3.4
+    S_v_over_S_ball: 1.0638
+    height_span_m: 0.384
+    gamma_per_m: 0.1023
+    gamma_err: 0.0095
+    gamma_note: null
+    fit_rms_px: 0.89
+    flights:
+    - kind: drop
+      n_points: 66
+      t_video:
+      - 0.7667
+      - 3.1333
+      apex_height_mm: 375.2
+      S_f_px_per_m: 1924.0
+      S_f_err: 3.3
+      K_implied_by_ball_diameter: 7.738
+      vx_m_s: 0.015
+      timescale_ok: true
+    - kind: bounce
+      n_points: 66
+      t_video:
+      - 3.2
+      - 5.6033
+      apex_height_mm: 111.9
+      S_f_px_per_m: 1910.7
+      S_f_err: 2.4
+      K_implied_by_ball_diameter: 7.765
+      vx_m_s: -0.018
+      timescale_ok: true
+    - kind: bounce
+      n_points: 37
+      t_video:
+      - 5.67
+      - 7.0033
+      apex_height_mm: 34.3
+      S_f_px_per_m: 1872.9
+      S_f_err: 4.4
+      K_implied_by_ball_diameter: 7.843
+      vx_m_s: -0.006
+      timescale_ok: true
+    - kind: bounce
+      n_points: 21
+      t_video:
+      - 7.0367
+      - 7.8033
+      apex_height_mm: 12.1
+      S_f_px_per_m: 1787.2
+      S_f_err: 22.6
+      K_implied_by_ball_diameter: 8.029
+      vx_m_s: -0.001
+      timescale_ok: true
+    - kind: bounce
+      n_points: 16
+      t_video:
+      - 7.8033
+      - 8.37
+      apex_height_mm: 7.7
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: 0.005
+    n_flights_found: 5
+    n_flights_used: 5
+    flights_rejected: []
+    drop_check:
+      nominal_release_height_m: 0.4064
+      v_free_fall_from_nominal: 2.822
+      v_in_measured: 2.6701
+      fitted_fall_height_m: 0.3752
+  c-16in-5:
+    name: c-16in-5
+    n_detections_off_path_dropped: 0
+    ball_width_px: 74.0
+    S_ball_px_per_m: 1850.0
+    S_v_px_per_m: 1924.7
+    S_v_err: 2.6
+    S_v_over_S_ball: 1.0404
+    height_span_m: 0.376
+    gamma_per_m: 0.1013
+    gamma_err: 0.0072
+    gamma_note: null
+    fit_rms_px: 0.7
+    flights:
+    - kind: drop
+      n_points: 65
+      t_video:
+      - 0.6
+      - 2.97
+      apex_height_mm: 375.2
+      S_f_px_per_m: 1917.0
+      S_f_err: 3.5
+      K_implied_by_ball_diameter: 7.859
+      vx_m_s: 0.015
+      timescale_ok: true
+    - kind: bounce
+      n_points: 67
+      t_video:
+      - 2.97
+      - 5.4367
+      apex_height_mm: 118.3
+      S_f_px_per_m: 1931.4
+      S_f_err: 1.7
+      K_implied_by_ball_diameter: 7.83
+      vx_m_s: 0.011
+      timescale_ok: true
+    - kind: bounce
+      n_points: 42
+      t_video:
+      - 5.47
+      - 7.0033
+      apex_height_mm: 44.5
+      S_f_px_per_m: 1916.0
+      S_f_err: 4.8
+      K_implied_by_ball_diameter: 7.861
+      vx_m_s: 0.013
+      timescale_ok: true
+    - kind: bounce
+      n_points: 26
+      t_video:
+      - 7.0367
+      - 7.97
+      apex_height_mm: 18.7
+      S_f_px_per_m: 1985.6
+      S_f_err: 15.8
+      K_implied_by_ball_diameter: 7.722
+      vx_m_s: 0.006
+      timescale_ok: true
+    n_flights_found: 4
+    n_flights_used: 4
+    flights_rejected: []
+    drop_check:
+      nominal_release_height_m: 0.4064
+      v_free_fall_from_nominal: 2.822
+      v_in_measured: 2.6439
+      fitted_fall_height_m: 0.3752
+  c-19in-1:
+    name: c-19in-1
+    n_detections_off_path_dropped: 0
+    ball_width_px: 76.0
+    S_ball_px_per_m: 1900.0
+    S_v_px_per_m: 1989.4
+    S_v_err: 2.7
+    S_v_over_S_ball: 1.0471
+    height_span_m: 0.451
+    gamma_per_m: 0.1045
+    gamma_err: 0.0059
+    gamma_note: null
+    fit_rms_px: 0.82
+    flights:
+    - kind: drop
+      n_points: 69
+      t_video:
+      - 1.5367
+      - 4.1033
+      apex_height_mm: 451.5
+      S_f_px_per_m: 1980.2
+      S_f_err: 3.6
+      K_implied_by_ball_diameter: 7.836
+      vx_m_s: 0.016
+      timescale_ok: true
+    - kind: bounce
+      n_points: 71
+      t_video:
+      - 4.1367
+      - 6.77
+      apex_height_mm: 134.8
+      S_f_px_per_m: 1997.7
+      S_f_err: 1.9
+      K_implied_by_ball_diameter: 7.802
+      vx_m_s: -0.002
+      timescale_ok: true
+    - kind: bounce
+      n_points: 42
+      t_video:
+      - 6.8033
+      - 8.37
+      apex_height_mm: 47.5
+      S_f_px_per_m: 1978.5
+      S_f_err: 3.7
+      K_implied_by_ball_diameter: 7.84
+      vx_m_s: 0.012
+      timescale_ok: true
+    - kind: bounce
+      n_points: 27
+      t_video:
+      - 8.4033
+      - 9.3733
+      apex_height_mm: 18.4
+      S_f_px_per_m: 1997.2
+      S_f_err: 13.5
+      K_implied_by_ball_diameter: 7.803
+      vx_m_s: 0.015
+      timescale_ok: true
+    - kind: bounce
+      n_points: 18
+      t_video:
+      - 9.4067
+      - 10.0067
+      apex_height_mm: 9.0
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: 0.014
+    n_flights_found: 5
+    n_flights_used: 5
+    flights_rejected: []
+    drop_check:
+      nominal_release_height_m: 0.4826
+      v_free_fall_from_nominal: 3.076
+      v_in_measured: 2.8813
+      fitted_fall_height_m: 0.4515
+  c-19in-2:
+    name: c-19in-2
+    n_detections_off_path_dropped: 0
+    ball_width_px: 74.0
+    S_ball_px_per_m: 1850.0
+    S_v_px_per_m: 1953.9
+    S_v_err: 2.7
+    S_v_over_S_ball: 1.0562
+    height_span_m: 0.45
+    gamma_per_m: 0.1166
+    gamma_err: 0.0071
+    gamma_note: null
+    fit_rms_px: 0.82
+    flights:
+    - kind: drop
+      n_points: 65
+      t_video:
+      - 0.8
+      - 3.2333
+      apex_height_mm: 446.9
+      S_f_px_per_m: 1945.0
+      S_f_err: 3.5
+      K_implied_by_ball_diameter: 7.802
+      vx_m_s: 0.058
+      timescale_ok: true
+    - kind: bounce
+      n_points: 73
+      t_video:
+      - 3.2667
+      - 5.9367
+      apex_height_mm: 135.4
+      S_f_px_per_m: 1959.7
+      S_f_err: 1.8
+      K_implied_by_ball_diameter: 7.773
+      vx_m_s: 0.056
+      timescale_ok: true
+    - kind: bounce
+      n_points: 34
+      t_video:
+      - 5.97
+      - 7.27
+      apex_height_mm: 49.8
+      S_f_px_per_m: 1932.4
+      S_f_err: 9.7
+      K_implied_by_ball_diameter: 7.828
+      vx_m_s: 0.069
+      timescale_ok: true
+    - kind: bounce
+      n_points: 28
+      t_video:
+      - 7.67
+      - 8.6367
+      apex_height_mm: 19.4
+      S_f_px_per_m: 1964.6
+      S_f_err: 26.1
+      K_implied_by_ball_diameter: 7.763
+      vx_m_s: 0.062
+      timescale_ok: true
+    - kind: bounce
+      n_points: 19
+      t_video:
+      - 8.7033
+      - 9.4033
+      apex_height_mm: 10.2
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: 0.058
+    - kind: bounce
+      n_points: 13
+      t_video:
+      - 9.4033
+      - 9.8367
+      apex_height_mm: 6.1
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: 0.058
+    n_flights_found: 6
+    n_flights_used: 6
+    flights_rejected: []
+    drop_check:
+      nominal_release_height_m: 0.4826
+      v_free_fall_from_nominal: 3.076
+      v_in_measured: 2.8866
+      fitted_fall_height_m: 0.4469
+  c-19in-3:
+    name: c-19in-3
+    n_detections_off_path_dropped: 0
+    ball_width_px: 74.0
+    S_ball_px_per_m: 1850.0
+    S_v_px_per_m: 1926.5
+    S_v_err: 3.3
+    S_v_over_S_ball: 1.0413
+    height_span_m: 0.448
+    gamma_per_m: 0.0903
+    gamma_err: 0.0068
+    gamma_note: null
+    fit_rms_px: 0.72
+    flights:
+    - kind: drop
+      n_points: 64
+      t_video:
+      - 0.8
+      - 3.1667
+      apex_height_mm: 447.6
+      S_f_px_per_m: 1923.9
+      S_f_err: 3.4
+      K_implied_by_ball_diameter: 7.845
+      vx_m_s: 0.023
+      timescale_ok: true
+    - kind: bounce
+      n_points: 63
+      t_video:
+      - 3.6333
+      - 5.87
+      apex_height_mm: 123.1
+      S_f_px_per_m: 1931.4
+      S_f_err: 2.5
+      K_implied_by_ball_diameter: 7.83
+      vx_m_s: -0.03
+      timescale_ok: true
+    - kind: bounce
+      n_points: 35
+      t_video:
+      - 5.9033
+      - 7.2033
+      apex_height_mm: 32.1
+      S_f_px_per_m: 1910.6
+      S_f_err: 6.1
+      K_implied_by_ball_diameter: 7.872
+      vx_m_s: -0.037
+      timescale_ok: true
+    - kind: bounce
+      n_points: 22
+      t_video:
+      - 7.2033
+      - 7.97
+      apex_height_mm: 10.2
+      S_f_px_per_m: 1785.2
+      S_f_err: 42.1
+      K_implied_by_ball_diameter: 8.144
+      vx_m_s: -0.037
+      timescale_ok: true
+    - kind: bounce
+      n_points: 14
+      t_video:
+      - 7.97
+      - 8.4367
+      apex_height_mm: 3.8
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: -0.037
+    n_flights_found: 5
+    n_flights_used: 5
+    flights_rejected: []
+    drop_check:
+      nominal_release_height_m: 0.4826
+      v_free_fall_from_nominal: 3.076
+      v_in_measured: 2.8779
+      fitted_fall_height_m: 0.4476
+  c-19in-4:
+    name: c-19in-4
+    n_detections_off_path_dropped: 0
+    ball_width_px: 74.0
+    S_ball_px_per_m: 1850.0
+    S_v_px_per_m: 1926.9
+    S_v_err: 2.8
+    S_v_over_S_ball: 1.0416
+    height_span_m: 0.46
+    gamma_per_m: 0.0983
+    gamma_err: 0.0061
+    gamma_note: null
+    fit_rms_px: 0.83
+    flights:
+    - kind: drop
+      n_points: 69
+      t_video:
+      - 0.7667
+      - 3.3667
+      apex_height_mm: 461.4
+      S_f_px_per_m: 1930.2
+      S_f_err: 3.3
+      K_implied_by_ball_diameter: 7.832
+      vx_m_s: -0.002
+      timescale_ok: true
+    - kind: bounce
+      n_points: 69
+      t_video:
+      - 3.4333
+      - 5.9367
+      apex_height_mm: 118.5
+      S_f_px_per_m: 1925.6
+      S_f_err: 2.0
+      K_implied_by_ball_diameter: 7.841
+      vx_m_s: -0.03
+      timescale_ok: true
+    - kind: bounce
+      n_points: 36
+      t_video:
+      - 5.97
+      - 7.2367
+      apex_height_mm: 30.0
+      S_f_px_per_m: 1883.1
+      S_f_err: 8.0
+      K_implied_by_ball_diameter: 7.929
+      vx_m_s: -0.024
+      timescale_ok: true
+    - kind: bounce
+      n_points: 20
+      t_video:
+      - 7.2367
+      - 8.0033
+      apex_height_mm: 12.1
+      S_f_px_per_m: 1812.5
+      S_f_err: 30.3
+      K_implied_by_ball_diameter: 8.082
+      vx_m_s: -0.028
+      timescale_ok: true
+    - kind: bounce
+      n_points: 14
+      t_video:
+      - 8.0033
+      - 8.47
+      apex_height_mm: 5.5
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: -0.028
+    n_flights_found: 5
+    n_flights_used: 5
+    flights_rejected: []
+    drop_check:
+      nominal_release_height_m: 0.4826
+      v_free_fall_from_nominal: 3.076
+      v_in_measured: 2.9351
+      fitted_fall_height_m: 0.4614
+  c-19in-5:
+    name: c-19in-5
+    n_detections_off_path_dropped: 0
+    ball_width_px: 73.0
+    S_ball_px_per_m: 1825.0
+    S_v_px_per_m: 1924.0
+    S_v_err: 2.9
+    S_v_over_S_ball: 1.0543
+    height_span_m: 0.457
+    gamma_per_m: 0.0967
+    gamma_err: 0.0074
+    gamma_note: null
+    fit_rms_px: 0.94
+    flights:
+    - kind: drop
+      n_points: 68
+      t_video:
+      - 0.77
+      - 3.3033
+      apex_height_mm: 453.0
+      S_f_px_per_m: 1927.9
+      S_f_err: 3.7
+      K_implied_by_ball_diameter: 7.784
+      vx_m_s: 0.011
+      timescale_ok: true
+    - kind: bounce
+      n_points: 71
+      t_video:
+      - 3.37
+      - 6.0033
+      apex_height_mm: 129.3
+      S_f_px_per_m: 1926.6
+      S_f_err: 2.3
+      K_implied_by_ball_diameter: 7.786
+      vx_m_s: 0.008
+      timescale_ok: true
+    - kind: bounce
+      n_points: 43
+      t_video:
+      - 6.0033
+      - 7.57
+      apex_height_mm: 44.7
+      S_f_px_per_m: 1868.8
+      S_f_err: 5.0
+      K_implied_by_ball_diameter: 7.906
+      vx_m_s: 0.005
+      timescale_ok: true
+    - kind: bounce
+      n_points: 26
+      t_video:
+      - 7.6033
+      - 8.57
+      apex_height_mm: 17.7
+      S_f_px_per_m: 1793.8
+      S_f_err: 17.6
+      K_implied_by_ball_diameter: 8.069
+      vx_m_s: 0.004
+      timescale_ok: true
+    - kind: bounce
+      n_points: 18
+      t_video:
+      - 8.57
+      - 9.2067
+      apex_height_mm: 9.1
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: 0.003
+    - kind: bounce
+      n_points: 9
+      t_video:
+      - 9.2067
+      - 9.5067
+      apex_height_mm: 5.5
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: 0.003
+    n_flights_found: 6
+    n_flights_used: 6
+    flights_rejected: []
+    drop_check:
+      nominal_release_height_m: 0.4826
+      v_free_fall_from_nominal: 3.076
+      v_in_measured: 2.9177
+      fitted_fall_height_m: 0.453
+  c-25_25in-1:
+    name: c-25_25in-1
+    n_detections_off_path_dropped: 5
+    ball_width_px: 74.0
+    S_ball_px_per_m: 1850.0
+    S_v_px_per_m: 1928.3
+    S_v_err: 3.1
+    S_v_over_S_ball: 1.0423
+    height_span_m: 0.646
+    gamma_per_m: 0.0375
+    gamma_err: 0.0042
+    gamma_note: null
+    fit_rms_px: 1.47
+    flights:
+    - kind: drop
+      n_points: 86
+      t_video:
+      - 0.6333
+      - 3.8333
+      apex_height_mm: 636.1
+      S_f_px_per_m: 1928.5
+      S_f_err: 4.2
+      K_implied_by_ball_diameter: 7.836
+      vx_m_s: 0.048
+      timescale_ok: true
+    - kind: bounce
+      n_points: 76
+      t_video:
+      - 4.1667
+      - 6.9367
+      apex_height_mm: 173.4
+      S_f_px_per_m: 1930.8
+      S_f_err: 1.5
+      K_implied_by_ball_diameter: 7.831
+      vx_m_s: -0.014
+      timescale_ok: true
+    - kind: bounce
+      n_points: 46
+      t_video:
+      - 6.97
+      - 8.67
+      apex_height_mm: 56.4
+      S_f_px_per_m: 1912.8
+      S_f_err: 4.1
+      K_implied_by_ball_diameter: 7.867
+      vx_m_s: 0.02
+      timescale_ok: true
+    - kind: bounce
+      n_points: 32
+      t_video:
+      - 8.7367
+      - 9.87
+      apex_height_mm: 23.3
+      S_f_px_per_m: 1833.6
+      S_f_err: 13.6
+      K_implied_by_ball_diameter: 8.036
+      vx_m_s: 0.021
+      timescale_ok: true
+    - kind: bounce
+      n_points: 20
+      t_video:
+      - 9.87
+      - 10.57
+      apex_height_mm: 10.4
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: 0.022
+    - kind: bounce
+      n_points: 15
+      t_video:
+      - 10.57
+      - 11.07
+      apex_height_mm: 7.0
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: 0.025
+    - kind: bounce
+      n_points: 10
+      t_video:
+      - 11.07
+      - 11.47
+      apex_height_mm: 5.7
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: 0.021
+    n_flights_found: 7
+    n_flights_used: 7
+    flights_rejected: []
+    drop_check:
+      nominal_release_height_m: 0.6413
+      v_free_fall_from_nominal: 3.545
+      v_in_measured: 3.4099
+      fitted_fall_height_m: 0.6361
+  c-25_25in-2:
+    name: c-25_25in-2
+    n_detections_off_path_dropped: 0
+    ball_width_px: 72.0
+    S_ball_px_per_m: 1800.0
+    S_v_px_per_m: 1892.0
+    S_v_err: 3.2
+    S_v_over_S_ball: 1.0511
+    height_span_m: 0.659
+    gamma_per_m: 0.0285
+    gamma_err: 0.0047
+    gamma_note: null
+    fit_rms_px: 1.52
+    flights:
+    - kind: drop
+      n_points: 84
+      t_video:
+      - 0.5333
+      - 3.7333
+      apex_height_mm: 639.9
+      S_f_px_per_m: 1901.3
+      S_f_err: 4.1
+      K_implied_by_ball_diameter: 7.784
+      vx_m_s: 0.043
+      timescale_ok: true
+    - kind: bounce
+      n_points: 74
+      t_video:
+      - 4.1367
+      - 6.87
+      apex_height_mm: 176.4
+      S_f_px_per_m: 1877.9
+      S_f_err: 1.9
+      K_implied_by_ball_diameter: 7.832
+      vx_m_s: -0.007
+      timescale_ok: true
+    - kind: bounce
+      n_points: 47
+      t_video:
+      - 6.9033
+      - 8.6033
+      apex_height_mm: 52.0
+      S_f_px_per_m: 1851.3
+      S_f_err: 4.1
+      K_implied_by_ball_diameter: 7.888
+      vx_m_s: 0.024
+      timescale_ok: true
+    - kind: bounce
+      n_points: 29
+      t_video:
+      - 8.6033
+      - 9.6367
+      apex_height_mm: 20.9
+      S_f_px_per_m: 1749.5
+      S_f_err: 17.8
+      K_implied_by_ball_diameter: 8.115
+      vx_m_s: 0.031
+      timescale_ok: true
+    - kind: bounce
+      n_points: 19
+      t_video:
+      - 9.6367
+      - 10.3367
+      apex_height_mm: 13.9
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: 0.033
+    - kind: bounce
+      n_points: 14
+      t_video:
+      - 10.3367
+      - 10.8367
+      apex_height_mm: 10.9
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: 0.026
+    n_flights_found: 6
+    n_flights_used: 6
+    flights_rejected: []
+    drop_check:
+      nominal_release_height_m: 0.6413
+      v_free_fall_from_nominal: 3.545
+      v_in_measured: 3.4276
+      fitted_fall_height_m: 0.6399
+  c-25_25in-3:
+    name: c-25_25in-3
+    n_detections_off_path_dropped: 0
+    ball_width_px: 76.0
+    S_ball_px_per_m: 1900.0
+    S_v_px_per_m: 1952.0
+    S_v_err: 3.2
+    S_v_over_S_ball: 1.0274
+    height_span_m: 0.633
+    gamma_per_m: 0.038
+    gamma_err: 0.0064
+    gamma_note: null
+    fit_rms_px: 1.42
+    flights:
+    - kind: drop
+      n_points: 72
+      t_video:
+      - 1.4033
+      - 4.07
+      apex_height_mm: 637.7
+      S_f_px_per_m: 1937.3
+      S_f_err: 6.5
+      K_implied_by_ball_diameter: 7.923
+      vx_m_s: 0.034
+      timescale_ok: true
+    - kind: bounce
+      n_points: 75
+      t_video:
+      - 4.4033
+      - 7.17
+      apex_height_mm: 182.1
+      S_f_px_per_m: 1963.7
+      S_f_err: 1.6
+      K_implied_by_ball_diameter: 7.869
+      vx_m_s: 0.002
+      timescale_ok: true
+    - kind: bounce
+      n_points: 49
+      t_video:
+      - 7.17
+      - 8.9367
+      apex_height_mm: 61.8
+      S_f_px_per_m: 1966.8
+      S_f_err: 5.1
+      K_implied_by_ball_diameter: 7.863
+      vx_m_s: -0.003
+      timescale_ok: true
+    - kind: bounce
+      n_points: 32
+      t_video:
+      - 9.0033
+      - 10.1733
+      apex_height_mm: 25.3
+      S_f_px_per_m: 1959.9
+      S_f_err: 9.8
+      K_implied_by_ball_diameter: 7.877
+      vx_m_s: -0.007
+      timescale_ok: true
+    - kind: bounce
+      n_points: 23
+      t_video:
+      - 10.1733
+      - 10.94
+      apex_height_mm: 10.6
+      S_f_px_per_m: 1879.9
+      S_f_err: 27.7
+      K_implied_by_ball_diameter: 8.043
+      vx_m_s: -0.002
+      timescale_ok: true
+    - kind: bounce
+      n_points: 14
+      t_video:
+      - 10.94
+      - 11.44
+      apex_height_mm: 4.8
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: -0.002
+    - kind: bounce
+      n_points: 8
+      t_video:
+      - 11.44
+      - 11.74
+      apex_height_mm: 3.2
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: -0.007
+    n_flights_found: 7
+    n_flights_used: 7
+    flights_rejected: []
+    drop_check:
+      nominal_release_height_m: 0.6413
+      v_free_fall_from_nominal: 3.545
+      v_in_measured: 3.3841
+      fitted_fall_height_m: 0.6377
+  c-25_25in-4:
+    name: c-25_25in-4
+    n_detections_off_path_dropped: 0
+    ball_width_px: 74.0
+    S_ball_px_per_m: 1850.0
+    S_v_px_per_m: 1893.8
+    S_v_err: 3.3
+    S_v_over_S_ball: 1.0237
+    height_span_m: 0.625
+    gamma_per_m: 0.0252
+    gamma_err: 0.0046
+    gamma_note: null
+    fit_rms_px: 1.49
+    flights:
+    - kind: drop
+      n_points: 84
+      t_video:
+      - 2.1333
+      - 5.3033
+      apex_height_mm: 620.6
+      S_f_px_per_m: 1894.0
+      S_f_err: 4.5
+      K_implied_by_ball_diameter: 7.907
+      vx_m_s: 0.035
+      timescale_ok: true
+    - kind: bounce
+      n_points: 73
+      t_video:
+      - 5.6367
+      - 8.4033
+      apex_height_mm: 178.6
+      S_f_px_per_m: 1894.6
+      S_f_err: 1.8
+      K_implied_by_ball_diameter: 7.905
+      vx_m_s: -0.018
+      timescale_ok: true
+    - kind: bounce
+      n_points: 47
+      t_video:
+      - 8.4367
+      - 10.1367
+      apex_height_mm: 54.6
+      S_f_px_per_m: 1889.4
+      S_f_err: 3.2
+      K_implied_by_ball_diameter: 7.916
+      vx_m_s: -0.002
+      timescale_ok: true
+    - kind: bounce
+      n_points: 27
+      t_video:
+      - 10.17
+      - 11.1367
+      apex_height_mm: 18.6
+      S_f_px_per_m: 1816.0
+      S_f_err: 14.4
+      K_implied_by_ball_diameter: 8.074
+      vx_m_s: -0.007
+      timescale_ok: true
+    - kind: bounce
+      n_points: 18
+      t_video:
+      - 11.1367
+      - 11.77
+      apex_height_mm: 10.4
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: -0.002
+    - kind: bounce
+      n_points: 12
+      t_video:
+      - 11.77
+      - 12.2067
+      apex_height_mm: 7.7
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: 0.001
+    n_flights_found: 6
+    n_flights_used: 6
+    flights_rejected: []
+    drop_check:
+      nominal_release_height_m: 0.6413
+      v_free_fall_from_nominal: 3.545
+      v_in_measured: 3.3664
+      fitted_fall_height_m: 0.6206
+  c-25_25in-5:
+    name: c-25_25in-5
+    n_detections_off_path_dropped: 0
+    ball_width_px: 75.0
+    S_ball_px_per_m: 1875.0
+    S_v_px_per_m: 1953.3
+    S_v_err: 3.0
+    S_v_over_S_ball: 1.0418
+    height_span_m: 0.65
+    gamma_per_m: 0.0312
+    gamma_err: 0.0039
+    gamma_note: null
+    fit_rms_px: 1.38
+    flights:
+    - kind: drop
+      n_points: 85
+      t_video:
+      - 0.0
+      - 3.2367
+      apex_height_mm: 638.7
+      S_f_px_per_m: 1950.5
+      S_f_err: 4.0
+      K_implied_by_ball_diameter: 7.844
+      vx_m_s: 0.027
+      timescale_ok: true
+    - kind: bounce
+      n_points: 71
+      t_video:
+      - 3.6033
+      - 6.27
+      apex_height_mm: 168.5
+      S_f_px_per_m: 1963.7
+      S_f_err: 1.6
+      K_implied_by_ball_diameter: 7.817
+      vx_m_s: -0.003
+      timescale_ok: true
+    - kind: bounce
+      n_points: 48
+      t_video:
+      - 6.3033
+      - 8.1033
+      apex_height_mm: 57.4
+      S_f_px_per_m: 1940.9
+      S_f_err: 3.3
+      K_implied_by_ball_diameter: 7.863
+      vx_m_s: -0.019
+      timescale_ok: true
+    - kind: bounce
+      n_points: 33
+      t_video:
+      - 8.1367
+      - 9.3033
+      apex_height_mm: 25.6
+      S_f_px_per_m: 1885.3
+      S_f_err: 9.9
+      K_implied_by_ball_diameter: 7.978
+      vx_m_s: -0.014
+      timescale_ok: true
+    - kind: bounce
+      n_points: 21
+      t_video:
+      - 9.3367
+      - 10.07
+      apex_height_mm: 13.6
+      S_f_px_per_m: 1907.0
+      S_f_err: 23.5
+      K_implied_by_ball_diameter: 7.933
+      vx_m_s: -0.01
+      timescale_ok: true
+    - kind: bounce
+      n_points: 13
+      t_video:
+      - 10.1033
+      - 10.57
+      apex_height_mm: 9.2
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: -0.013
+    - kind: bounce
+      n_points: 11
+      t_video:
+      - 10.57
+      - 10.9067
+      apex_height_mm: 8.5
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: -0.014
+    n_flights_found: 7
+    n_flights_used: 7
+    flights_rejected: []
+    drop_check:
+      nominal_release_height_m: 0.6413
+      v_free_fall_from_nominal: 3.545
+      v_in_measured: 3.4146
+      fitted_fall_height_m: 0.6387
+  c-4in-1:
+    name: c-4in-1
+    n_detections_off_path_dropped: 25
+    ball_width_px: 74.0
+    S_ball_px_per_m: 1850.0
+    S_v_px_per_m: 1792.3
+    S_v_err: 22.3
+    S_v_over_S_ball: 0.9688
+    height_span_m: 0.02
+    gamma_per_m: 0.0
+    gamma_err: null
+    gamma_note: perspective term fixed at 0 (flights span < 0.15 m)
+    fit_rms_px: 0.86
+    flights:
+    - kind: bounce
+      n_points: 27
+      t_video:
+      - 1.4667
+      - 2.5033
+      apex_height_mm: 20.6
+      S_f_px_per_m: 1805.2
+      S_f_err: 24.5
+      K_implied_by_ball_diameter: 8.099
+      vx_m_s: -0.002
+      timescale_ok: true
+    - kind: bounce
+      n_points: 18
+      t_video:
+      - 2.5367
+      - 3.2033
+      apex_height_mm: 9.0
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: 0.0
+    - kind: bounce
+      n_points: 14
+      t_video:
+      - 3.2033
+      - 3.7367
+      apex_height_mm: 5.4
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: 0.001
+    n_flights_found: 4
+    n_flights_used: 3
+    flights_rejected:
+    - t_video:
+      - 1.233
+      - 1.433
+      reason: too few points (5)
+    drop_check: null
+  c-4in-2:
+    name: c-4in-2
+    n_detections_off_path_dropped: 5
+    ball_width_px: 94.0
+    S_ball_px_per_m: 2350.0
+    S_v_px_per_m: 1953.1
+    S_v_err: 35.0
+    S_v_over_S_ball: 0.8311
+    height_span_m: 0.018
+    gamma_per_m: 0.0
+    gamma_err: null
+    gamma_note: perspective term fixed at 0 (flights span < 0.15 m)
+    fit_rms_px: 0.99
+    flights:
+    - kind: drop
+      n_points: 26
+      t_video:
+      - 1.0667
+      - 1.9667
+      apex_height_mm: 22.1
+      S_f_px_per_m: 2013.2
+      S_f_err: 42.5
+      K_implied_by_ball_diameter: 8.643
+      vx_m_s: 0.003
+      timescale_ok: true
+    - kind: bounce
+      n_points: 19
+      t_video:
+      - 2.0333
+      - 2.7333
+      apex_height_mm: 8.5
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: -0.018
+    - kind: bounce
+      n_points: 10
+      t_video:
+      - 2.7667
+      - 3.1333
+      apex_height_mm: 5.1
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: -0.014
+    n_flights_found: 3
+    n_flights_used: 3
+    flights_rejected: []
+    drop_check:
+      nominal_release_height_m: 0.1016
+      v_free_fall_from_nominal: 1.411
+      v_in_measured: 0.6863
+      fitted_fall_height_m: 0.0221
+      note: 'release not captured: first tracked flight is already a rebound'
+  c-4in-3:
+    name: c-4in-3
+    n_detections_off_path_dropped: 0
+    ball_width_px: 80.0
+    S_ball_px_per_m: 2000.0
+    S_v_px_per_m: 1941.6
+    S_v_err: 13.0
+    S_v_over_S_ball: 0.9708
+    height_span_m: 0.063
+    gamma_per_m: 0.0
+    gamma_err: null
+    gamma_note: perspective term fixed at 0 (flights span < 0.15 m)
+    fit_rms_px: 0.69
+    flights:
+    - kind: drop
+      n_points: 20
+      t_video:
+      - 4.1333
+      - 4.8333
+      apex_height_mm: 70.3
+      S_f_px_per_m: 1924.7
+      S_f_err: 38.2
+      K_implied_by_ball_diameter: 8.155
+      vx_m_s: -0.043
+      timescale_ok: true
+    - kind: bounce
+      n_points: 32
+      t_video:
+      - 4.8333
+      - 6.0
+      apex_height_mm: 26.3
+      S_f_px_per_m: 1962.6
+      S_f_err: 13.2
+      K_implied_by_ball_diameter: 8.076
+      vx_m_s: -0.007
+      timescale_ok: true
+    - kind: bounce
+      n_points: 20
+      t_video:
+      - 6.0333
+      - 6.8033
+      apex_height_mm: 10.3
+      S_f_px_per_m: 1814.9
+      S_f_err: 40.8
+      K_implied_by_ball_diameter: 8.398
+      vx_m_s: -0.01
+      timescale_ok: true
+    - kind: bounce
+      n_points: 15
+      t_video:
+      - 6.8033
+      - 7.3033
+      apex_height_mm: 4.2
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: 0.0
+    n_flights_found: 5
+    n_flights_used: 4
+    flights_rejected:
+    - t_video:
+      - 7.303
+      - 7.703
+      reason: too low (2.4 mm)
+    drop_check:
+      nominal_release_height_m: 0.1016
+      v_free_fall_from_nominal: 1.411
+      v_in_measured: 1.1725
+      fitted_fall_height_m: 0.0703
+  c-4in-4:
+    name: c-4in-4
+    n_detections_off_path_dropped: 2
+    ball_width_px: 80.0
+    S_ball_px_per_m: 2000.0
+    S_v_px_per_m: 1924.0
+    S_v_err: 11.8
+    S_v_over_S_ball: 0.962
+    height_span_m: 0.056
+    gamma_per_m: 0.0
+    gamma_err: null
+    gamma_note: perspective term fixed at 0 (flights span < 0.15 m)
+    fit_rms_px: 0.57
+    flights:
+    - kind: drop
+      n_points: 18
+      t_video:
+      - 2.7033
+      - 3.3367
+      apex_height_mm: 64.3
+      S_f_px_per_m: 1887.5
+      S_f_err: 58.4
+      K_implied_by_ball_diameter: 8.235
+      vx_m_s: -0.009
+      timescale_ok: true
+    - kind: bounce
+      n_points: 32
+      t_video:
+      - 3.37
+      - 4.5033
+      apex_height_mm: 24.4
+      S_f_px_per_m: 1934.9
+      S_f_err: 11.1
+      K_implied_by_ball_diameter: 8.134
+      vx_m_s: 0.01
+      timescale_ok: true
+    - kind: bounce
+      n_points: 17
+      t_video:
+      - 4.5033
+      - 5.2367
+      apex_height_mm: 10.0
+      S_f_px_per_m: 1845.7
+      S_f_err: 39.2
+      K_implied_by_ball_diameter: 8.328
+      vx_m_s: 0.022
+      timescale_ok: true
+    - kind: bounce
+      n_points: 10
+      t_video:
+      - 5.2367
+      - 5.6367
+      apex_height_mm: 5.9
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: 0.032
+    n_flights_found: 4
+    n_flights_used: 4
+    flights_rejected: []
+    drop_check:
+      nominal_release_height_m: 0.1016
+      v_free_fall_from_nominal: 1.411
+      v_in_measured: 1.1339
+      fitted_fall_height_m: 0.0643
+  c-4in-5:
+    name: c-4in-5
+    n_detections_off_path_dropped: 10
+    ball_width_px: 82.0
+    S_ball_px_per_m: 2050.0
+    S_v_px_per_m: 1919.1
+    S_v_err: 10.3
+    S_v_over_S_ball: 0.9361
+    height_span_m: 0.074
+    gamma_per_m: 0.0
+    gamma_err: null
+    gamma_note: perspective term fixed at 0 (flights span < 0.15 m)
+    fit_rms_px: 0.78
+    flights:
+    - kind: drop
+      n_points: 32
+      t_video:
+      - 1.8
+      - 2.9667
+      apex_height_mm: 79.7
+      S_f_px_per_m: 1924.2
+      S_f_err: 19.8
+      K_implied_by_ball_diameter: 8.257
+      vx_m_s: 0.029
+      timescale_ok: true
+    - kind: bounce
+      n_points: 33
+      t_video:
+      - 2.9667
+      - 4.2
+      apex_height_mm: 30.7
+      S_f_px_per_m: 1913.3
+      S_f_err: 13.1
+      K_implied_by_ball_diameter: 8.281
+      vx_m_s: 0.001
+      timescale_ok: true
+    - kind: bounce
+      n_points: 23
+      t_video:
+      - 4.2
+      - 5.0333
+      apex_height_mm: 12.9
+      S_f_px_per_m: 1932.1
+      S_f_err: 29.0
+      K_implied_by_ball_diameter: 8.241
+      vx_m_s: -0.013
+      timescale_ok: true
+    n_flights_found: 4
+    n_flights_used: 3
+    flights_rejected:
+    - t_video:
+      - 5.067
+      - 5.567
+      reason: too low (2.3 mm)
+    drop_check:
+      nominal_release_height_m: 0.1016
+      v_free_fall_from_nominal: 1.411
+      v_in_measured: 1.2219
+      fitted_fall_height_m: 0.0797
+  c-8in-1:
+    name: c-8in-1
+    n_detections_off_path_dropped: 24
+    ball_width_px: 72.0
+    S_ball_px_per_m: 1800.0
+    S_v_px_per_m: 1854.1
+    S_v_err: 7.1
+    S_v_over_S_ball: 1.03
+    height_span_m: 0.106
+    gamma_per_m: 0.0
+    gamma_err: null
+    gamma_note: perspective term fixed at 0 (flights span < 0.15 m)
+    fit_rms_px: 0.65
+    flights:
+    - kind: drop
+      n_points: 26
+      t_video:
+      - 3.2333
+      - 4.2
+      apex_height_mm: 108.9
+      S_f_px_per_m: 1928.0
+      S_f_err: 20.5
+      K_implied_by_ball_diameter: 7.73
+      vx_m_s: 0.028
+      timescale_ok: true
+    - kind: bounce
+      n_points: 38
+      t_video:
+      - 4.2333
+      - 5.7033
+      apex_height_mm: 37.1
+      S_f_px_per_m: 1855.7
+      S_f_err: 5.9
+      K_implied_by_ball_diameter: 7.879
+      vx_m_s: 0.011
+      timescale_ok: true
+    - kind: bounce
+      n_points: 23
+      t_video:
+      - 5.7033
+      - 6.6367
+      apex_height_mm: 16.1
+      S_f_px_per_m: 1790.3
+      S_f_err: 13.6
+      K_implied_by_ball_diameter: 8.022
+      vx_m_s: 0.007
+      timescale_ok: true
+    - kind: bounce
+      n_points: 14
+      t_video:
+      - 6.6367
+      - 7.3033
+      apex_height_mm: 10.8
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: -0.002
+    n_flights_found: 5
+    n_flights_used: 4
+    flights_rejected:
+    - t_video:
+      - 7.303
+      - 8.337
+      reason: not free flight (rms 13.5 px vs video median 1.3)
+    drop_check:
+      nominal_release_height_m: 0.2032
+      v_free_fall_from_nominal: 1.996
+      v_in_measured: 1.5031
+      fitted_fall_height_m: 0.1089
+  c-8in-2:
+    name: c-8in-2
+    n_detections_off_path_dropped: 7
+    ball_width_px: 78.0
+    S_ball_px_per_m: 1950.0
+    S_v_px_per_m: 1958.6
+    S_v_err: 5.8
+    S_v_over_S_ball: 1.0044
+    height_span_m: 0.142
+    gamma_per_m: 0.0
+    gamma_err: null
+    gamma_note: perspective term fixed at 0 (flights span < 0.15 m)
+    fit_rms_px: 0.64
+    flights:
+    - kind: drop
+      n_points: 32
+      t_video:
+      - 2.1333
+      - 3.3
+      apex_height_mm: 145.0
+      S_f_px_per_m: 2001.6
+      S_f_err: 16.4
+      K_implied_by_ball_diameter: 7.896
+      vx_m_s: 0.006
+      timescale_ok: true
+    - kind: bounce
+      n_points: 43
+      t_video:
+      - 3.37
+      - 4.9367
+      apex_height_mm: 48.6
+      S_f_px_per_m: 1950.4
+      S_f_err: 4.6
+      K_implied_by_ball_diameter: 7.999
+      vx_m_s: 0.016
+      timescale_ok: true
+    - kind: bounce
+      n_points: 28
+      t_video:
+      - 4.97
+      - 5.97
+      apex_height_mm: 18.8
+      S_f_px_per_m: 1958.6
+      S_f_err: 13.4
+      K_implied_by_ball_diameter: 7.982
+      vx_m_s: 0.027
+      timescale_ok: true
+    - kind: bounce
+      n_points: 21
+      t_video:
+      - 5.97
+      - 6.7033
+      apex_height_mm: 9.3
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: 0.034
+    - kind: bounce
+      n_points: 13
+      t_video:
+      - 6.7033
+      - 7.17
+      apex_height_mm: 4.5
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: 0.033
+    n_flights_found: 5
+    n_flights_used: 5
+    flights_rejected: []
+    drop_check:
+      nominal_release_height_m: 0.2032
+      v_free_fall_from_nominal: 1.996
+      v_in_measured: 1.682
+      fitted_fall_height_m: 0.145
+  c-8in-3:
+    name: c-8in-3
+    n_detections_off_path_dropped: 11
+    ball_width_px: 76.0
+    S_ball_px_per_m: 1900.0
+    S_v_px_per_m: 1914.0
+    S_v_err: 6.6
+    S_v_over_S_ball: 1.0074
+    height_span_m: 0.115
+    gamma_per_m: 0.0
+    gamma_err: null
+    gamma_note: perspective term fixed at 0 (flights span < 0.15 m)
+    fit_rms_px: 0.64
+    flights:
+    - kind: drop
+      n_points: 28
+      t_video:
+      - 2.8667
+      - 3.9
+      apex_height_mm: 117.3
+      S_f_px_per_m: 2013.2
+      S_f_err: 17.5
+      K_implied_by_ball_diameter: 7.772
+      vx_m_s: -0.002
+      timescale_ok: true
+    - kind: bounce
+      n_points: 40
+      t_video:
+      - 3.9667
+      - 5.4367
+      apex_height_mm: 41.2
+      S_f_px_per_m: 1902.3
+      S_f_err: 5.5
+      K_implied_by_ball_diameter: 7.995
+      vx_m_s: 0.008
+      timescale_ok: true
+    - kind: bounce
+      n_points: 29
+      t_video:
+      - 5.4367
+      - 6.4367
+      apex_height_mm: 18.3
+      S_f_px_per_m: 1915.2
+      S_f_err: 16.3
+      K_implied_by_ball_diameter: 7.968
+      vx_m_s: 0.017
+      timescale_ok: true
+    - kind: bounce
+      n_points: 21
+      t_video:
+      - 6.47
+      - 7.17
+      apex_height_mm: 8.9
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: 0.016
+    - kind: bounce
+      n_points: 14
+      t_video:
+      - 7.17
+      - 7.67
+      apex_height_mm: 5.0
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: 0.023
+    n_flights_found: 5
+    n_flights_used: 5
+    flights_rejected: []
+    drop_check:
+      nominal_release_height_m: 0.2032
+      v_free_fall_from_nominal: 1.996
+      v_in_measured: 1.5188
+      fitted_fall_height_m: 0.1173
+  c-8in-4:
+    name: c-8in-4
+    n_detections_off_path_dropped: 4
+    ball_width_px: 75.0
+    S_ball_px_per_m: 1875.0
+    S_v_px_per_m: 1913.9
+    S_v_err: 5.6
+    S_v_over_S_ball: 1.0208
+    height_span_m: 0.126
+    gamma_per_m: 0.0
+    gamma_err: null
+    gamma_note: perspective term fixed at 0 (flights span < 0.15 m)
+    fit_rms_px: 0.54
+    flights:
+    - kind: drop
+      n_points: 29
+      t_video:
+      - 2.4367
+      - 3.5033
+      apex_height_mm: 126.9
+      S_f_px_per_m: 1932.2
+      S_f_err: 19.1
+      K_implied_by_ball_diameter: 7.881
+      vx_m_s: -0.012
+      timescale_ok: true
+    - kind: bounce
+      n_points: 42
+      t_video:
+      - 3.57
+      - 5.0367
+      apex_height_mm: 46.7
+      S_f_px_per_m: 1913.7
+      S_f_err: 4.6
+      K_implied_by_ball_diameter: 7.919
+      vx_m_s: 0.009
+      timescale_ok: true
+    - kind: bounce
+      n_points: 29
+      t_video:
+      - 5.1033
+      - 6.1367
+      apex_height_mm: 21.2
+      S_f_px_per_m: 1922.1
+      S_f_err: 12.7
+      K_implied_by_ball_diameter: 7.901
+      vx_m_s: 0.004
+      timescale_ok: true
+    - kind: bounce
+      n_points: 21
+      t_video:
+      - 6.17
+      - 6.9033
+      apex_height_mm: 9.6
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: 0.005
+    - kind: bounce
+      n_points: 15
+      t_video:
+      - 6.9033
+      - 7.4367
+      apex_height_mm: 4.8
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: 0.004
+    n_flights_found: 6
+    n_flights_used: 5
+    flights_rejected:
+    - t_video:
+      - 7.437
+      - 7.837
+      reason: too low (2.1 mm)
+    drop_check:
+      nominal_release_height_m: 0.2032
+      v_free_fall_from_nominal: 1.996
+      v_in_measured: 1.5635
+      fitted_fall_height_m: 0.1269
+  c-8in-5:
+    name: c-8in-5
+    n_detections_off_path_dropped: 7
+    ball_width_px: 74.0
+    S_ball_px_per_m: 1850.0
+    S_v_px_per_m: 1897.3
+    S_v_err: 6.3
+    S_v_over_S_ball: 1.0256
+    height_span_m: 0.127
+    gamma_per_m: 0.0
+    gamma_err: null
+    gamma_note: perspective term fixed at 0 (flights span < 0.15 m)
+    fit_rms_px: 0.65
+    flights:
+    - kind: drop
+      n_points: 30
+      t_video:
+      - 2.6367
+      - 3.77
+      apex_height_mm: 126.5
+      S_f_px_per_m: 1903.2
+      S_f_err: 17.9
+      K_implied_by_ball_diameter: 7.887
+      vx_m_s: -0.011
+      timescale_ok: true
+    - kind: bounce
+      n_points: 42
+      t_video:
+      - 3.8033
+      - 5.3033
+      apex_height_mm: 43.6
+      S_f_px_per_m: 1907.0
+      S_f_err: 2.9
+      K_implied_by_ball_diameter: 7.88
+      vx_m_s: 0.017
+      timescale_ok: true
+    - kind: bounce
+      n_points: 28
+      t_video:
+      - 5.37
+      - 6.37
+      apex_height_mm: 18.6
+      S_f_px_per_m: 1868.7
+      S_f_err: 14.3
+      K_implied_by_ball_diameter: 7.96
+      vx_m_s: 0.031
+      timescale_ok: true
+    - kind: bounce
+      n_points: 20
+      t_video:
+      - 6.37
+      - 7.07
+      apex_height_mm: 9.2
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: 0.053
+    - kind: bounce
+      n_points: 14
+      t_video:
+      - 7.07
+      - 7.5367
+      apex_height_mm: 5.7
+      S_f_px_per_m: null
+      S_f_err: null
+      K_implied_by_ball_diameter: null
+      vx_m_s: 0.031
+    n_flights_found: 5
+    n_flights_used: 5
+    flights_rejected: []
+    drop_check:
+      nominal_release_height_m: 0.2032
+      v_free_fall_from_nominal: 1.996
+      v_in_measured: 1.59
+      fitted_fall_height_m: 0.1265
+impacts:
+- video: c-12in-1
+  index: 0
+  t_video: 3.3485
+  v_in: 2.0934
+  v_out: 1.2375
+  e: 0.5911
+  v_in_err: 0.0046
+  v_out_err: 0.0007
+  e_err: 0.0012
+  impact_row_offset_mm: -4.3
+  first: true
+  vx_in: 0.02
+  vx_out: -0.017
+- video: c-12in-1
+  index: 1
+  t_video: 5.3482
+  v_in: 1.2125
+  v_out: 0.7284
+  e: 0.6008
+  v_in_err: 0.001
+  v_out_err: 0.0014
+  e_err: 0.001
+  impact_row_offset_mm: -2.7
+  first: false
+  vx_in: -0.017
+  vx_out: -0.028
+- video: c-12in-1
+  index: 2
+  t_video: 6.515
+  v_in: 0.7011
+  v_out: 0.4474
+  e: 0.6382
+  v_in_err: 0.002
+  v_out_err: 0.0027
+  e_err: 0.0033
+  impact_row_offset_mm: -0.9
+  first: false
+  vx_in: -0.028
+  vx_out: -0.034
+- video: c-12in-1
+  index: 3
+  t_video: 7.2262
+  v_in: 0.4238
+  v_out: 0.3166
+  e: 0.747
+  v_in_err: 0.0036
+  v_out_err: 0.0044
+  e_err: 0.0091
+  impact_row_offset_mm: 0.1
+  first: false
+  vx_in: -0.034
+  vx_out: -0.041
+- video: c-12in-2
+  index: 0
+  t_video: 4.0268
+  v_in: 2.1994
+  v_out: 1.2781
+  e: 0.5811
+  v_in_err: 0.0036
+  v_out_err: 0.0006
+  e_err: 0.0008
+  impact_row_offset_mm: 0.8
+  first: true
+  vx_in: -0.004
+  vx_out: -0.021
+- video: c-12in-2
+  index: 1
+  t_video: 6.1154
+  v_in: 1.28
+  v_out: 0.7911
+  e: 0.618
+  v_in_err: 0.0006
+  v_out_err: 0.0009
+  e_err: 0.0007
+  impact_row_offset_mm: -1.3
+  first: false
+  vx_in: -0.021
+  vx_out: -0.033
+- video: c-12in-2
+  index: 2
+  t_video: 7.417
+  v_in: 0.8033
+  v_out: 0.5002
+  e: 0.6226
+  v_in_err: 0.0014
+  v_out_err: 0.0019
+  e_err: 0.0019
+  impact_row_offset_mm: -2.6
+  first: false
+  vx_in: -0.033
+  vx_out: -0.034
+- video: c-12in-3
+  index: 0
+  t_video: 3.1437
+  v_in: 2.235
+  v_out: 1.3626
+  e: 0.6096
+  v_in_err: 0.0036
+  v_out_err: 0.0006
+  e_err: 0.0009
+  impact_row_offset_mm: -2.7
+  first: true
+  vx_in: 0.015
+  vx_out: 0.019
+- video: c-12in-3
+  index: 1
+  t_video: 5.3467
+  v_in: 1.3364
+  v_out: 0.8357
+  e: 0.6254
+  v_in_err: 0.0007
+  v_out_err: 0.001
+  e_err: 0.0007
+  impact_row_offset_mm: -1.4
+  first: false
+  vx_in: 0.019
+  vx_out: 0.029
+- video: c-12in-3
+  index: 2
+  t_video: 6.7029
+  v_in: 0.8257
+  v_out: 0.566
+  e: 0.6856
+  v_in_err: 0.0013
+  v_out_err: 0.0018
+  e_err: 0.0018
+  impact_row_offset_mm: -0.9
+  first: false
+  vx_in: 0.029
+  vx_out: 0.03
+- video: c-12in-3
+  index: 3
+  t_video: 7.6227
+  v_in: 0.5608
+  v_out: 0.3761
+  e: 0.6707
+  v_in_err: 0.0022
+  v_out_err: 0.0033
+  e_err: 0.0051
+  impact_row_offset_mm: -0.7
+  first: false
+  vx_in: 0.03
+  vx_out: 0.031
+- video: c-12in-4
+  index: 0
+  t_video: 3.8086
+  v_in: 2.1475
+  v_out: 1.2369
+  e: 0.5759
+  v_in_err: 0.0036
+  v_out_err: 0.0006
+  e_err: 0.0009
+  impact_row_offset_mm: 0.9
+  first: true
+  vx_in: -0.007
+  vx_out: 0.009
+- video: c-12in-4
+  index: 1
+  t_video: 5.828
+  v_in: 1.2367
+  v_out: 0.7575
+  e: 0.6125
+  v_in_err: 0.0007
+  v_out_err: 0.0011
+  e_err: 0.0008
+  impact_row_offset_mm: -0.8
+  first: false
+  vx_in: 0.009
+  vx_out: 0.014
+- video: c-12in-4
+  index: 2
+  t_video: 7.0691
+  v_in: 0.7628
+  v_out: 0.5261
+  e: 0.6898
+  v_in_err: 0.0013
+  v_out_err: 0.0017
+  e_err: 0.002
+  impact_row_offset_mm: -1.4
+  first: false
+  vx_in: 0.014
+  vx_out: 0.026
+- video: c-12in-4
+  index: 3
+  t_video: 7.9325
+  v_in: 0.5315
+  v_out: 0.3461
+  e: 0.6511
+  v_in_err: 0.0022
+  v_out_err: 0.003
+  e_err: 0.005
+  impact_row_offset_mm: -1.8
+  first: false
+  vx_in: 0.026
+  vx_out: 0.033
+- video: c-12in-5
+  index: 0
+  t_video: 2.9936
+  v_in: 2.125
+  v_out: 1.2734
+  e: 0.5992
+  v_in_err: 0.0038
+  v_out_err: 0.0006
+  e_err: 0.0009
+  impact_row_offset_mm: -2.3
+  first: true
+  vx_in: 0.016
+  vx_out: 0.003
+- video: c-12in-5
+  index: 1
+  t_video: 5.0637
+  v_in: 1.2625
+  v_out: 0.8265
+  e: 0.6547
+  v_in_err: 0.0007
+  v_out_err: 0.001
+  e_err: 0.0007
+  impact_row_offset_mm: -2.7
+  first: false
+  vx_in: 0.003
+  vx_out: 0.005
+- video: c-12in-5
+  index: 2
+  t_video: 6.3935
+  v_in: 0.8027
+  v_out: 0.5538
+  e: 0.69
+  v_in_err: 0.0013
+  v_out_err: 0.0019
+  e_err: 0.002
+  impact_row_offset_mm: -1.0
+  first: false
+  vx_in: 0.005
+  vx_out: 0.006
+- video: c-16in-1
+  index: 0
+  t_video: 3.6748
+  v_in: 2.5357
+  v_out: 1.4427
+  e: 0.569
+  v_in_err: 0.003
+  v_out_err: 0.0005
+  e_err: 0.0006
+  impact_row_offset_mm: -2.1
+  first: true
+  vx_in: 0.004
+  vx_out: -0.022
+- video: c-16in-1
+  index: 1
+  t_video: 6.0134
+  v_in: 1.4221
+  v_out: 0.8542
+  e: 0.6006
+  v_in_err: 0.0005
+  v_out_err: 0.0008
+  e_err: 0.0005
+  impact_row_offset_mm: -2.1
+  first: false
+  vx_in: -0.022
+  vx_out: -0.034
+- video: c-16in-1
+  index: 2
+  t_video: 7.3923
+  v_in: 0.8351
+  v_out: 0.4888
+  e: 0.5853
+  v_in_err: 0.0012
+  v_out_err: 0.0018
+  e_err: 0.0018
+  impact_row_offset_mm: -0.8
+  first: false
+  vx_in: -0.034
+  vx_out: -0.034
+- video: c-16in-1
+  index: 3
+  t_video: 8.1736
+  v_in: 0.4685
+  v_out: 0.3066
+  e: 0.6544
+  v_in_err: 0.0025
+  v_out_err: 0.0037
+  e_err: 0.0065
+  impact_row_offset_mm: 0.1
+  first: false
+  vx_in: -0.034
+  vx_out: -0.036
+- video: c-16in-2
+  index: 0
+  t_video: 2.3021
+  v_in: 2.5189
+  v_out: 1.4366
+  e: 0.5703
+  v_in_err: 0.0028
+  v_out_err: 0.0005
+  e_err: 0.0006
+  impact_row_offset_mm: -6.8
+  first: true
+  vx_in: 0.018
+  vx_out: -0.014
+- video: c-16in-2
+  index: 1
+  t_video: 4.6169
+  v_in: 1.3996
+  v_out: 0.837
+  e: 0.598
+  v_in_err: 0.0006
+  v_out_err: 0.0009
+  e_err: 0.0006
+  impact_row_offset_mm: -4.3
+  first: false
+  vx_in: -0.014
+  vx_out: -0.01
+- video: c-16in-2
+  index: 2
+  t_video: 5.9511
+  v_in: 0.7976
+  v_out: 0.5131
+  e: 0.6433
+  v_in_err: 0.0013
+  v_out_err: 0.0019
+  e_err: 0.002
+  impact_row_offset_mm: -1.4
+  first: false
+  vx_in: -0.01
+  vx_out: -0.01
+- video: c-16in-2
+  index: 3
+  t_video: 6.7639
+  v_in: 0.4827
+  v_out: 0.3428
+  e: 0.7102
+  v_in_err: 0.0028
+  v_out_err: 0.004
+  e_err: 0.0067
+  impact_row_offset_mm: 0.1
+  first: false
+  vx_in: -0.01
+  vx_out: -0.008
+- video: c-16in-2
+  index: 4
+  t_video: 7.293
+  v_in: 0.3054
+  v_out: 0.245
+  e: 0.8023
+  v_in_err: 0.0051
+  v_out_err: 0.0061
+  e_err: 0.0165
+  impact_row_offset_mm: 1.4
+  first: false
+  vx_in: -0.008
+  vx_out: -0.001
+- video: c-16in-3
+  index: 0
+  t_video: 3.3462
+  v_in: 2.5828
+  v_out: 1.4945
+  e: 0.5786
+  v_in_err: 0.0028
+  v_out_err: 0.0005
+  e_err: 0.0006
+  impact_row_offset_mm: 1.1
+  first: true
+  vx_in: 0.024
+  vx_out: -0.031
+- video: c-16in-3
+  index: 1
+  t_video: 5.7766
+  v_in: 1.4825
+  v_out: 0.9407
+  e: 0.6345
+  v_in_err: 0.0005
+  v_out_err: 0.0007
+  e_err: 0.0005
+  impact_row_offset_mm: -0.5
+  first: false
+  vx_in: -0.031
+  vx_out: -0.026
+- video: c-16in-3
+  index: 2
+  t_video: 7.3157
+  v_in: 0.9447
+  v_out: 0.5958
+  e: 0.6307
+  v_in_err: 0.001
+  v_out_err: 0.0014
+  e_err: 0.0013
+  impact_row_offset_mm: -1.5
+  first: false
+  vx_in: -0.026
+  vx_out: -0.03
+- video: c-16in-3
+  index: 3
+  t_video: 8.295
+  v_in: 0.6037
+  v_out: 0.3939
+  e: 0.6526
+  v_in_err: 0.0018
+  v_out_err: 0.0025
+  e_err: 0.0035
+  impact_row_offset_mm: -2.0
+  first: false
+  vx_in: -0.03
+  vx_out: -0.027
+- video: c-16in-4
+  index: 0
+  t_video: 3.1462
+  v_in: 2.6701
+  v_out: 1.5448
+  e: 0.5786
+  v_in_err: 0.0036
+  v_out_err: 0.0006
+  e_err: 0.0007
+  impact_row_offset_mm: -7.9
+  first: true
+  vx_in: 0.015
+  vx_out: -0.018
+- video: c-16in-4
+  index: 1
+  t_video: 5.6315
+  v_in: 1.5005
+  v_out: 0.8778
+  e: 0.585
+  v_in_err: 0.0007
+  v_out_err: 0.0012
+  e_err: 0.0007
+  impact_row_offset_mm: -4.8
+  first: false
+  vx_in: -0.018
+  vx_out: -0.006
+- video: c-16in-4
+  index: 2
+  t_video: 7.0242
+  v_in: 0.8287
+  v_out: 0.5066
+  e: 0.6113
+  v_in_err: 0.0016
+  v_out_err: 0.0027
+  e_err: 0.0027
+  impact_row_offset_mm: -0.9
+  first: false
+  vx_in: -0.006
+  vx_out: -0.001
+- video: c-16in-4
+  index: 3
+  t_video: 7.8137
+  v_in: 0.4607
+  v_out: 0.3555
+  e: 0.7716
+  v_in_err: 0.0031
+  v_out_err: 0.0044
+  e_err: 0.0084
+  impact_row_offset_mm: 1.3
+  first: false
+  vx_in: -0.001
+  vx_out: 0.005
+- video: c-16in-5
+  index: 0
+  t_video: 2.9668
+  v_in: 2.6439
+  v_out: 1.5353
+  e: 0.5807
+  v_in_err: 0.0027
+  v_out_err: 0.0004
+  e_err: 0.0005
+  impact_row_offset_mm: -0.0
+  first: true
+  vx_in: 0.015
+  vx_out: 0.011
+- video: c-16in-5
+  index: 1
+  t_video: 5.4602
+  v_in: 1.519
+  v_out: 0.9507
+  e: 0.6259
+  v_in_err: 0.0005
+  v_out_err: 0.0008
+  e_err: 0.0005
+  impact_row_offset_mm: -1.3
+  first: false
+  vx_in: 0.011
+  vx_out: 0.013
+- video: c-16in-5
+  index: 2
+  t_video: 7.0219
+  v_in: 0.9621
+  v_out: 0.653
+  e: 0.6788
+  v_in_err: 0.001
+  v_out_err: 0.0015
+  e_err: 0.0013
+  impact_row_offset_mm: -3.0
+  first: false
+  vx_in: 0.013
+  vx_out: 0.006
+- video: c-19in-1
+  index: 0
+  t_video: 4.1218
+  v_in: 2.8813
+  v_out: 1.6317
+  e: 0.5663
+  v_in_err: 0.0028
+  v_out_err: 0.0005
+  e_err: 0.0005
+  impact_row_offset_mm: 1.4
+  first: true
+  vx_in: 0.016
+  vx_out: -0.002
+- video: c-19in-1
+  index: 1
+  t_video: 6.776
+  v_in: 1.6193
+  v_out: 0.9828
+  e: 0.607
+  v_in_err: 0.0006
+  v_out_err: 0.0008
+  e_err: 0.0005
+  impact_row_offset_mm: -1.5
+  first: false
+  vx_in: -0.002
+  vx_out: 0.012
+- video: c-19in-1
+  index: 2
+  t_video: 8.3762
+  v_in: 0.9774
+  v_out: 0.6261
+  e: 0.6406
+  v_in_err: 0.0011
+  v_out_err: 0.0016
+  e_err: 0.0014
+  impact_row_offset_mm: -1.6
+  first: false
+  vx_in: 0.012
+  vx_out: 0.015
+- video: c-19in-1
+  index: 3
+  t_video: 9.3885
+  v_in: 0.614
+  v_out: 0.4424
+  e: 0.7205
+  v_in_err: 0.0021
+  v_out_err: 0.0031
+  e_err: 0.0042
+  impact_row_offset_mm: -0.9
+  first: false
+  vx_in: 0.015
+  vx_out: 0.014
+- video: c-19in-2
+  index: 0
+  t_video: 3.2508
+  v_in: 2.8866
+  v_out: 1.6742
+  e: 0.58
+  v_in_err: 0.0036
+  v_out_err: 0.0005
+  e_err: 0.0006
+  impact_row_offset_mm: -4.9
+  first: true
+  vx_in: 0.058
+  vx_out: 0.056
+- video: c-19in-2
+  index: 1
+  t_video: 5.9598
+  v_in: 1.6445
+  v_out: 1.0425
+  e: 0.6339
+  v_in_err: 0.0006
+  v_out_err: 0.0012
+  e_err: 0.0006
+  impact_row_offset_mm: -5.3
+  first: false
+  vx_in: 0.056
+  vx_out: 0.069
+- video: c-19in-2
+  index: 2
+  t_video: 7.6361
+  v_in: 1.0114
+  v_out: 0.6602
+  e: 0.6527
+  v_in_err: 0.0011
+  v_out_err: 0.0019
+  e_err: 0.0016
+  impact_row_offset_mm: -2.8
+  first: false
+  vx_in: 0.069
+  vx_out: 0.062
+- video: c-19in-2
+  index: 3
+  t_video: 8.6829
+  v_in: 0.6223
+  v_out: 0.4561
+  e: 0.733
+  v_in_err: 0.0021
+  v_out_err: 0.0028
+  e_err: 0.0037
+  impact_row_offset_mm: -0.4
+  first: false
+  vx_in: 0.062
+  vx_out: 0.058
+- video: c-19in-2
+  index: 4
+  t_video: 9.3924
+  v_in: 0.4132
+  v_out: 0.3041
+  e: 0.7359
+  v_in_err: 0.0036
+  v_out_err: 0.0054
+  e_err: 0.0109
+  impact_row_offset_mm: 1.4
+  first: false
+  vx_in: 0.058
+  vx_out: 0.058
+- video: c-19in-3
+  index: 0
+  t_video: 3.333
+  v_in: 2.8779
+  v_out: 1.5754
+  e: 0.5474
+  v_in_err: 0.0031
+  v_out_err: 0.0006
+  e_err: 0.0005
+  impact_row_offset_mm: -1.4
+  first: true
+  vx_in: 0.023
+  vx_out: -0.03
+- video: c-19in-3
+  index: 1
+  t_video: 5.8863
+  v_in: 1.5525
+  v_out: 0.8192
+  e: 0.5277
+  v_in_err: 0.0007
+  v_out_err: 0.001
+  e_err: 0.0006
+  impact_row_offset_mm: -1.9
+  first: false
+  vx_in: -0.03
+  vx_out: -0.037
+- video: c-19in-3
+  index: 2
+  t_video: 7.2087
+  v_in: 0.801
+  v_out: 0.4637
+  e: 0.5789
+  v_in_err: 0.0013
+  v_out_err: 0.0021
+  e_err: 0.0023
+  impact_row_offset_mm: -0.7
+  first: false
+  vx_in: -0.037
+  vx_out: -0.037
+- video: c-19in-3
+  index: 3
+  t_video: 7.9637
+  v_in: 0.4611
+  v_out: 0.2951
+  e: 0.6399
+  v_in_err: 0.0028
+  v_out_err: 0.004
+  e_err: 0.0075
+  impact_row_offset_mm: -0.7
+  first: false
+  vx_in: -0.037
+  vx_out: -0.037
+- video: c-19in-4
+  index: 0
+  t_video: 3.4049
+  v_in: 2.9351
+  v_out: 1.5804
+  e: 0.5384
+  v_in_err: 0.0031
+  v_out_err: 0.0005
+  e_err: 0.0005
+  impact_row_offset_mm: -6.8
+  first: true
+  vx_in: -0.002
+  vx_out: -0.03
+- video: c-19in-4
+  index: 1
+  t_video: 5.9456
+  v_in: 1.5329
+  v_out: 0.811
+  e: 0.5291
+  v_in_err: 0.0007
+  v_out_err: 0.0012
+  e_err: 0.0007
+  impact_row_offset_mm: -3.4
+  first: false
+  vx_in: -0.03
+  vx_out: -0.024
+- video: c-19in-4
+  index: 2
+  t_video: 7.2348
+  v_in: 0.7686
+  v_out: 0.4926
+  e: 0.6409
+  v_in_err: 0.0017
+  v_out_err: 0.0026
+  e_err: 0.0028
+  impact_row_offset_mm: -0.2
+  first: false
+  vx_in: -0.024
+  vx_out: -0.028
+- video: c-19in-4
+  index: 3
+  t_video: 8.0137
+  v_in: 0.4617
+  v_out: 0.2909
+  e: 0.6301
+  v_in_err: 0.0034
+  v_out_err: 0.0051
+  e_err: 0.0093
+  impact_row_offset_mm: 1.2
+  first: false
+  vx_in: -0.028
+  vx_out: -0.028
+- video: c-19in-5
+  index: 0
+  t_video: 3.3367
+  v_in: 2.9177
+  v_out: 1.6639
+  e: 0.5703
+  v_in_err: 0.0038
+  v_out_err: 0.0006
+  e_err: 0.0006
+  impact_row_offset_mm: -9.3
+  first: true
+  vx_in: 0.011
+  vx_out: 0.008
+- video: c-19in-5
+  index: 1
+  t_video: 6.005
+  v_in: 1.606
+  v_out: 0.9881
+  e: 0.6153
+  v_in_err: 0.0006
+  v_out_err: 0.001
+  e_err: 0.0006
+  impact_row_offset_mm: -4.7
+  first: false
+  vx_in: 0.008
+  vx_out: 0.005
+- video: c-19in-5
+  index: 2
+  t_video: 7.5871
+  v_in: 0.9504
+  v_out: 0.6166
+  e: 0.6488
+  v_in_err: 0.0013
+  v_out_err: 0.002
+  e_err: 0.0018
+  impact_row_offset_mm: -1.6
+  first: false
+  vx_in: 0.005
+  vx_out: 0.004
+- video: c-19in-5
+  index: 3
+  t_video: 8.5654
+  v_in: 0.5819
+  v_out: 0.4135
+  e: 0.7106
+  v_in_err: 0.0025
+  v_out_err: 0.0035
+  e_err: 0.0053
+  impact_row_offset_mm: 0.4
+  first: false
+  vx_in: 0.004
+  vx_out: 0.003
+- video: c-19in-5
+  index: 4
+  t_video: 9.2087
+  v_in: 0.3747
+  v_out: 0.2623
+  e: 0.7001
+  v_in_err: 0.005
+  v_out_err: 0.0108
+  e_err: 0.0246
+  impact_row_offset_mm: 1.9
+  first: false
+  vx_in: 0.003
+  vx_out: 0.003
+- video: c-25_25in-1
+  index: 0
+  t_video: 3.8565
+  v_in: 3.4099
+  v_out: 1.9253
+  e: 0.5646
+  v_in_err: 0.0031
+  v_out_err: 0.0007
+  e_err: 0.0005
+  impact_row_offset_mm: -11.0
+  first: true
+  vx_in: 0.048
+  vx_out: -0.014
+- video: c-25_25in-1
+  index: 1
+  t_video: 6.9427
+  v_in: 1.8569
+  v_out: 1.1189
+  e: 0.6025
+  v_in_err: 0.0009
+  v_out_err: 0.0014
+  e_err: 0.0006
+  impact_row_offset_mm: -6.9
+  first: false
+  vx_in: -0.014
+  vx_out: 0.02
+- video: c-25_25in-1
+  index: 2
+  t_video: 8.7306
+  v_in: 1.072
+  v_out: 0.7151
+  e: 0.6671
+  v_in_err: 0.0017
+  v_out_err: 0.0025
+  e_err: 0.002
+  impact_row_offset_mm: -2.7
+  first: false
+  vx_in: 0.02
+  vx_out: 0.021
+- video: c-25_25in-1
+  index: 3
+  t_video: 9.8631
+  v_in: 0.6724
+  v_out: 0.4474
+  e: 0.6654
+  v_in_err: 0.0033
+  v_out_err: 0.0047
+  e_err: 0.006
+  impact_row_offset_mm: 0.2
+  first: false
+  vx_in: 0.021
+  vx_out: 0.022
+- video: c-25_25in-1
+  index: 4
+  t_video: 10.5643
+  v_in: 0.4117
+  v_out: 0.3214
+  e: 0.7808
+  v_in_err: 0.0061
+  v_out_err: 0.0075
+  e_err: 0.0165
+  impact_row_offset_mm: 1.7
+  first: false
+  vx_in: 0.022
+  vx_out: 0.025
+- video: c-25_25in-1
+  index: 5
+  t_video: 11.07
+  v_in: 0.298
+  v_out: 0.2542
+  e: 0.853
+  v_in_err: 0.0094
+  v_out_err: 0.0111
+  e_err: 0.0359
+  impact_row_offset_mm: 2.4
+  first: false
+  vx_in: 0.025
+  vx_out: 0.021
+- video: c-25_25in-2
+  index: 0
+  t_video: 3.7466
+  v_in: 3.4276
+  v_out: 1.9599
+  e: 0.5718
+  v_in_err: 0.0036
+  v_out_err: 0.0008
+  e_err: 0.0006
+  impact_row_offset_mm: -14.5
+  first: true
+  vx_in: 0.043
+  vx_out: -0.007
+- video: c-25_25in-2
+  index: 1
+  t_video: 6.8787
+  v_in: 1.879
+  v_out: 1.092
+  e: 0.5812
+  v_in_err: 0.001
+  v_out_err: 0.0014
+  e_err: 0.0007
+  impact_row_offset_mm: -8.3
+  first: false
+  vx_in: -0.007
+  vx_out: 0.024
+- video: c-25_25in-2
+  index: 2
+  t_video: 8.6036
+  v_in: 1.022
+  v_out: 0.6653
+  e: 0.651
+  v_in_err: 0.002
+  v_out_err: 0.0029
+  e_err: 0.0024
+  impact_row_offset_mm: -1.6
+  first: false
+  vx_in: 0.024
+  vx_out: 0.031
+- video: c-25_25in-2
+  index: 3
+  t_video: 9.6293
+  v_in: 0.5915
+  v_out: 0.4628
+  e: 0.7825
+  v_in_err: 0.0041
+  v_out_err: 0.0052
+  e_err: 0.0074
+  impact_row_offset_mm: 3.0
+  first: false
+  vx_in: 0.031
+  vx_out: 0.033
+- video: c-25_25in-2
+  index: 4
+  t_video: 10.3389
+  v_in: 0.4065
+  v_out: 0.3265
+  e: 0.8033
+  v_in_err: 0.0066
+  v_out_err: 0.0087
+  e_err: 0.0188
+  impact_row_offset_mm: 5.4
+  first: false
+  vx_in: 0.033
+  vx_out: 0.026
+- video: c-25_25in-3
+  index: 0
+  t_video: 4.0915
+  v_in: 3.3841
+  v_out: 1.9059
+  e: 0.5632
+  v_in_err: 0.0062
+  v_out_err: 0.0008
+  e_err: 0.0009
+  impact_row_offset_mm: 1.3
+  first: true
+  vx_in: 0.034
+  vx_out: 0.002
+- video: c-25_25in-3
+  index: 1
+  t_video: 7.1739
+  v_in: 1.87
+  v_out: 1.1124
+  e: 0.5949
+  v_in_err: 0.0009
+  v_out_err: 0.0012
+  e_err: 0.0006
+  impact_row_offset_mm: -0.8
+  first: false
+  vx_in: 0.002
+  vx_out: -0.003
+- video: c-25_25in-3
+  index: 2
+  t_video: 8.9918
+  v_in: 1.1143
+  v_out: 0.7344
+  e: 0.6591
+  v_in_err: 0.0016
+  v_out_err: 0.0023
+  e_err: 0.0017
+  impact_row_offset_mm: -2.1
+  first: false
+  vx_in: -0.003
+  vx_out: -0.007
+- video: c-25_25in-3
+  index: 3
+  t_video: 10.1786
+  v_in: 0.7195
+  v_out: 0.4811
+  e: 0.6687
+  v_in_err: 0.0028
+  v_out_err: 0.004
+  e_err: 0.0048
+  impact_row_offset_mm: -1.2
+  first: false
+  vx_in: -0.007
+  vx_out: -0.002
+- video: c-25_25in-3
+  index: 4
+  t_video: 10.9442
+  v_in: 0.4568
+  v_out: 0.3088
+  e: 0.676
+  v_in_err: 0.0057
+  v_out_err: 0.0074
+  e_err: 0.0138
+  impact_row_offset_mm: -0.1
+  first: false
+  vx_in: -0.002
+  vx_out: -0.002
+- video: c-25_25in-3
+  index: 5
+  t_video: 11.4308
+  v_in: 0.2873
+  v_out: 0.227
+  e: 0.79
+  v_in_err: 0.0106
+  v_out_err: 0.0152
+  e_err: 0.046
+  impact_row_offset_mm: 0.6
+  first: false
+  vx_in: -0.002
+  vx_out: -0.007
+- video: c-25_25in-4
+  index: 0
+  t_video: 5.2959
+  v_in: 3.3664
+  v_out: 1.94
+  e: 0.5763
+  v_in_err: 0.0033
+  v_out_err: 0.0008
+  e_err: 0.0005
+  impact_row_offset_mm: -8.6
+  first: true
+  vx_in: 0.035
+  vx_out: -0.018
+- video: c-25_25in-4
+  index: 1
+  t_video: 8.4079
+  v_in: 1.8736
+  v_out: 1.0854
+  e: 0.5793
+  v_in_err: 0.001
+  v_out_err: 0.0014
+  e_err: 0.0007
+  impact_row_offset_mm: -5.1
+  first: false
+  vx_in: -0.018
+  vx_out: -0.002
+- video: c-25_25in-4
+  index: 2
+  t_video: 10.1464
+  v_in: 1.0448
+  v_out: 0.6303
+  e: 0.6033
+  v_in_err: 0.002
+  v_out_err: 0.003
+  e_err: 0.0025
+  impact_row_offset_mm: -1.6
+  first: false
+  vx_in: -0.002
+  vx_out: -0.007
+- video: c-25_25in-4
+  index: 3
+  t_video: 11.1324
+  v_in: 0.5778
+  v_out: 0.4174
+  e: 0.7223
+  v_in_err: 0.0043
+  v_out_err: 0.0056
+  e_err: 0.0082
+  impact_row_offset_mm: 1.6
+  first: false
+  vx_in: -0.007
+  vx_out: -0.002
+- video: c-25_25in-4
+  index: 4
+  t_video: 11.7726
+  v_in: 0.3669
+  v_out: 0.2855
+  e: 0.778
+  v_in_err: 0.0084
+  v_out_err: 0.0098
+  e_err: 0.0231
+  impact_row_offset_mm: 3.6
+  first: false
+  vx_in: -0.002
+  vx_out: 0.001
+- video: c-25_25in-5
+  index: 0
+  t_video: 3.2484
+  v_in: 3.4146
+  v_out: 1.8953
+  e: 0.555
+  v_in_err: 0.0029
+  v_out_err: 0.0007
+  e_err: 0.0004
+  impact_row_offset_mm: -10.3
+  first: true
+  vx_in: 0.027
+  vx_out: -0.003
+- video: c-25_25in-5
+  index: 1
+  t_video: 6.2975
+  v_in: 1.8407
+  v_out: 1.1419
+  e: 0.6203
+  v_in_err: 0.0009
+  v_out_err: 0.0012
+  e_err: 0.0006
+  impact_row_offset_mm: -8.6
+  first: false
+  vx_in: -0.003
+  vx_out: -0.019
+- video: c-25_25in-5
+  index: 2
+  t_video: 8.1195
+  v_in: 1.0909
+  v_out: 0.7617
+  e: 0.6982
+  v_in_err: 0.0015
+  v_out_err: 0.0021
+  e_err: 0.0016
+  impact_row_offset_mm: -3.9
+  first: false
+  vx_in: -0.019
+  vx_out: -0.014
+- video: c-25_25in-5
+  index: 3
+  t_video: 9.3119
+  v_in: 0.6994
+  v_out: 0.5058
+  e: 0.7233
+  v_in_err: 0.003
+  v_out_err: 0.0041
+  e_err: 0.0048
+  impact_row_offset_mm: 0.6
+  first: false
+  vx_in: -0.014
+  vx_out: -0.01
+- video: c-25_25in-5
+  index: 4
+  t_video: 10.0874
+  v_in: 0.4443
+  v_out: 0.3323
+  e: 0.7479
+  v_in_err: 0.0055
+  v_out_err: 0.0083
+  e_err: 0.0157
+  impact_row_offset_mm: 3.5
+  first: false
+  vx_in: -0.01
+  vx_out: -0.013
+- video: c-25_25in-5
+  index: 5
+  t_video: 10.5747
+  v_in: 0.2647
+  v_out: 0.2406
+  e: 0.9087
+  v_in_err: 0.0094
+  v_out_err: 0.013
+  e_err: 0.0444
+  impact_row_offset_mm: 5.6
+  first: false
+  vx_in: -0.013
+  vx_out: -0.014
+- video: c-4in-1
+  index: 0
+  t_video: 2.5222
+  v_in: 0.6424
+  v_out: 0.4321
+  e: 0.6727
+  v_in_err: 0.0025
+  v_out_err: 0.0033
+  e_err: 0.0048
+  impact_row_offset_mm: -0.5
+  first: false
+  vx_in: -0.002
+  vx_out: 0.0
+- video: c-4in-1
+  index: 1
+  t_video: 3.212
+  v_in: 0.413
+  v_out: 0.3173
+  e: 0.7682
+  v_in_err: 0.0042
+  v_out_err: 0.0046
+  e_err: 0.0105
+  impact_row_offset_mm: 0.3
+  first: false
+  vx_in: 0.0
+  vx_out: 0.001
+- video: c-4in-2
+  index: 0
+  t_video: 1.9919
+  v_in: 0.6863
+  v_out: 0.4548
+  e: 0.6627
+  v_in_err: 0.0035
+  v_out_err: 0.0035
+  e_err: 0.0055
+  impact_row_offset_mm: -2.0
+  first: false
+  vx_in: 0.003
+  vx_out: -0.018
+- video: c-4in-2
+  index: 1
+  t_video: 2.709
+  v_in: 0.4237
+  v_out: 0.3348
+  e: 0.7902
+  v_in_err: 0.0051
+  v_out_err: 0.0075
+  e_err: 0.0138
+  impact_row_offset_mm: -0.6
+  first: false
+  vx_in: -0.018
+  vx_out: -0.014
+- video: c-4in-3
+  index: 0
+  t_video: 4.8345
+  v_in: 1.1725
+  v_out: 0.727
+  e: 0.62
+  v_in_err: 0.0051
+  v_out_err: 0.0013
+  e_err: 0.0023
+  impact_row_offset_mm: -0.6
+  first: true
+  vx_in: -0.043
+  vx_out: -0.007
+- video: c-4in-3
+  index: 1
+  t_video: 6.0257
+  v_in: 0.7321
+  v_out: 0.475
+  e: 0.6489
+  v_in_err: 0.0016
+  v_out_err: 0.0022
+  e_err: 0.0027
+  impact_row_offset_mm: -1.2
+  first: false
+  vx_in: -0.007
+  vx_out: -0.01
+- video: c-4in-3
+  index: 2
+  t_video: 6.7924
+  v_in: 0.4642
+  v_out: 0.3076
+  e: 0.6625
+  v_in_err: 0.0028
+  v_out_err: 0.0036
+  e_err: 0.0068
+  impact_row_offset_mm: -0.7
+  first: false
+  vx_in: -0.01
+  vx_out: 0.0
+- video: c-4in-4
+  index: 0
+  t_video: 3.3483
+  v_in: 1.1339
+  v_out: 0.7178
+  e: 0.633
+  v_in_err: 0.0046
+  v_out_err: 0.0011
+  e_err: 0.0022
+  impact_row_offset_mm: -1.8
+  first: true
+  vx_in: -0.009
+  vx_out: 0.01
+- video: c-4in-4
+  index: 1
+  t_video: 4.5075
+  v_in: 0.7024
+  v_out: 0.4627
+  e: 0.6587
+  v_in_err: 0.0015
+  v_out_err: 0.0021
+  e_err: 0.0026
+  impact_row_offset_mm: -0.9
+  first: false
+  vx_in: 0.01
+  vx_out: 0.022
+- video: c-4in-4
+  index: 2
+  t_video: 5.2411
+  v_in: 0.4359
+  v_out: 0.3314
+  e: 0.7602
+  v_in_err: 0.0027
+  v_out_err: 0.0048
+  e_err: 0.009
+  impact_row_offset_mm: 0.3
+  first: false
+  vx_in: 0.022
+  vx_out: 0.032
+- video: c-4in-5
+  index: 0
+  t_video: 2.9652
+  v_in: 1.2219
+  v_out: 0.7417
+  e: 0.607
+  v_in_err: 0.0029
+  v_out_err: 0.0012
+  e_err: 0.0016
+  impact_row_offset_mm: 2.8
+  first: true
+  vx_in: 0.029
+  vx_out: 0.001
+- video: c-4in-5
+  index: 1
+  t_video: 4.2018
+  v_in: 0.7728
+  v_out: 0.5
+  e: 0.6469
+  v_in_err: 0.0016
+  v_out_err: 0.0021
+  e_err: 0.0025
+  impact_row_offset_mm: 0.1
+  first: false
+  vx_in: 0.001
+  vx_out: -0.013
+- video: c-8in-1
+  index: 0
+  t_video: 4.2141
+  v_in: 1.5031
+  v_out: 0.9455
+  e: 0.629
+  v_in_err: 0.0035
+  v_out_err: 0.001
+  e_err: 0.0012
+  impact_row_offset_mm: -8.2
+  first: true
+  vx_in: 0.028
+  vx_out: 0.011
+- video: c-8in-1
+  index: 1
+  t_video: 5.7028
+  v_in: 0.8788
+  v_out: 0.6044
+  e: 0.6877
+  v_in_err: 0.0011
+  v_out_err: 0.0016
+  e_err: 0.0016
+  impact_row_offset_mm: -2.5
+  first: false
+  vx_in: 0.011
+  vx_out: 0.007
+- video: c-8in-1
+  index: 2
+  t_video: 6.6374
+  v_in: 0.5408
+  v_out: 0.4351
+  e: 0.8045
+  v_in_err: 0.002
+  v_out_err: 0.0027
+  e_err: 0.0045
+  impact_row_offset_mm: 1.2
+  first: false
+  vx_in: 0.007
+  vx_out: -0.002
+- video: c-8in-2
+  index: 0
+  t_video: 3.3216
+  v_in: 1.682
+  v_out: 1.0025
+  e: 0.596
+  v_in_err: 0.0028
+  v_out_err: 0.0007
+  e_err: 0.0009
+  impact_row_offset_mm: -2.3
+  first: true
+  vx_in: 0.006
+  vx_out: 0.016
+- video: c-8in-2
+  index: 1
+  t_video: 4.949
+  v_in: 0.9911
+  v_out: 0.6362
+  e: 0.6419
+  v_in_err: 0.001
+  v_out_err: 0.0013
+  e_err: 0.0012
+  impact_row_offset_mm: -1.8
+  first: false
+  vx_in: 0.016
+  vx_out: 0.027
+- video: c-8in-2
+  index: 2
+  t_video: 5.9745
+  v_in: 0.6201
+  v_out: 0.4473
+  e: 0.7214
+  v_in_err: 0.0015
+  v_out_err: 0.002
+  e_err: 0.0028
+  impact_row_offset_mm: -0.9
+  first: false
+  vx_in: 0.027
+  vx_out: 0.034
+- video: c-8in-2
+  index: 3
+  t_video: 6.6901
+  v_in: 0.4294
+  v_out: 0.3013
+  e: 0.7018
+  v_in_err: 0.0027
+  v_out_err: 0.0035
+  e_err: 0.0072
+  impact_row_offset_mm: -0.1
+  first: false
+  vx_in: 0.034
+  vx_out: 0.033
+- video: c-8in-3
+  index: 0
+  t_video: 3.9338
+  v_in: 1.5188
+  v_out: 0.9264
+  e: 0.6099
+  v_in_err: 0.0029
+  v_out_err: 0.0009
+  e_err: 0.0011
+  impact_row_offset_mm: -2.3
+  first: true
+  vx_in: -0.002
+  vx_out: 0.008
+- video: c-8in-3
+  index: 1
+  t_video: 5.4385
+  v_in: 0.9169
+  v_out: 0.6309
+  e: 0.6881
+  v_in_err: 0.001
+  v_out_err: 0.0013
+  e_err: 0.0013
+  impact_row_offset_mm: -2.0
+  first: false
+  vx_in: 0.008
+  vx_out: 0.017
+- video: c-8in-3
+  index: 2
+  t_video: 6.4556
+  v_in: 0.6152
+  v_out: 0.4417
+  e: 0.718
+  v_in_err: 0.0016
+  v_out_err: 0.0021
+  e_err: 0.0029
+  impact_row_offset_mm: -1.1
+  first: false
+  vx_in: 0.017
+  vx_out: 0.016
+- video: c-8in-3
+  index: 3
+  t_video: 7.1613
+  v_in: 0.4229
+  v_out: 0.3211
+  e: 0.7593
+  v_in_err: 0.0028
+  v_out_err: 0.0033
+  e_err: 0.0068
+  impact_row_offset_mm: -0.3
+  first: false
+  vx_in: 0.016
+  vx_out: 0.023
+- video: c-8in-4
+  index: 0
+  t_video: 3.5166
+  v_in: 1.5635
+  v_out: 0.9599
+  e: 0.614
+  v_in_err: 0.0027
+  v_out_err: 0.0007
+  e_err: 0.0009
+  impact_row_offset_mm: 0.0
+  first: true
+  vx_in: -0.012
+  vx_out: 0.009
+- video: c-8in-4
+  index: 1
+  t_video: 5.0863
+  v_in: 0.9629
+  v_out: 0.6582
+  e: 0.6836
+  v_in_err: 0.0008
+  v_out_err: 0.0011
+  e_err: 0.0011
+  impact_row_offset_mm: -0.9
+  first: false
+  vx_in: 0.009
+  vx_out: 0.004
+- video: c-8in-4
+  index: 2
+  t_video: 6.1585
+  v_in: 0.6552
+  v_out: 0.453
+  e: 0.6914
+  v_in_err: 0.0013
+  v_out_err: 0.0017
+  e_err: 0.0023
+  impact_row_offset_mm: -0.8
+  first: false
+  vx_in: 0.004
+  vx_out: 0.005
+- video: c-8in-4
+  index: 3
+  t_video: 6.8958
+  v_in: 0.4502
+  v_out: 0.3293
+  e: 0.7314
+  v_in_err: 0.0022
+  v_out_err: 0.0026
+  e_err: 0.0051
+  impact_row_offset_mm: -0.7
+  first: false
+  vx_in: 0.005
+  vx_out: 0.004
+- video: c-8in-5
+  index: 0
+  t_video: 3.7761
+  v_in: 1.59
+  v_out: 0.9777
+  e: 0.6149
+  v_in_err: 0.003
+  v_out_err: 0.0009
+  e_err: 0.001
+  impact_row_offset_mm: -4.8
+  first: true
+  vx_in: -0.011
+  vx_out: 0.017
+- video: c-8in-5
+  index: 1
+  t_video: 5.3486
+  v_in: 0.949
+  v_out: 0.6458
+  e: 0.6806
+  v_in_err: 0.001
+  v_out_err: 0.0014
+  e_err: 0.0013
+  impact_row_offset_mm: -2.6
+  first: false
+  vx_in: 0.017
+  vx_out: 0.031
+- video: c-8in-5
+  index: 2
+  t_video: 6.376
+  v_in: 0.6128
+  v_out: 0.4387
+  e: 0.7159
+  v_in_err: 0.0016
+  v_out_err: 0.0022
+  e_err: 0.0032
+  impact_row_offset_mm: -0.6
+  first: false
+  vx_in: 0.031
+  vx_out: 0.053
+- video: c-8in-5
+  index: 3
+  t_video: 7.0627
+  v_in: 0.4027
+  v_out: 0.3084
+  e: 0.766
+  v_in_err: 0.0029
+  v_out_err: 0.0037
+  e_err: 0.0082
+  impact_row_offset_mm: 0.9
+  first: false
+  vx_in: 0.053
+  vx_out: 0.031
+rejected_impacts:
+- video: c-12in-2
+  t_video: 8.237
+  reason: too low (1.7 mm)
+- video: c-12in-3
+  t_video: 8.237
+  reason: too few points (7)
+- video: c-12in-5
+  t_video: 7.27
+  reason: too few points (4)
+- video: c-16in-3
+  t_video: 8.937
+  reason: too low (1.1 mm)
+- video: c-4in-1
+  t_video: 1.433
+  reason: too few points (5)
+- video: c-4in-3
+  t_video: 7.303
+  reason: too low (2.4 mm)
+- video: c-4in-5
+  t_video: 5.067
+  reason: too low (2.3 mm)
+- video: c-8in-1
+  t_video: 7.303
+  reason: not free flight (rms 13.5 px vs video median 1.3)
+- video: c-8in-4
+  t_video: 7.437
+  reason: too low (2.1 mm)
+caveats:
+- 'Timebase: K = 8 assumed exact (240 fps capture on 30 fps timebase); per-frame PTS used (~15% of capture frames
+  are missing). Flight curvatures agree with K = 8 to a few %.'
+- 'Scale: S_v from gravity per video at the paddle contact row, with a 1D perspective term when the flights span
+  > 15 cm; absolute speeds carry ~1-2% scale uncertainty (S_v vs ball width differ 3-4%).'
+- e is a ratio of velocities at the same image location, so it is nearly independent of K and S_v; the drag correction
+  raises e by ~0.007 on average and ~0.02 above 2.5 m/s (drag.parabola_bias.measured_drag_minus_nodrag).
+- Impact point = intersection of incoming/outgoing flight curves; for fast impacts it lies up to ~15 mm below the
+  resting contact row (finite contact time, sponge/ball compression, blade/clamp compliance). Shown as impact_row_offset_mm.
+- The paddle is held by a clamp at the handle; blade compliance and vibration after an impact can make e depend
+  on the clamp, not only on ball+rubber. Low-speed rebounds (v < 0.6 m/s) happen while the blade may still ring
+  from the previous impact and show the largest scatter.
+- Impacts are near the blade centre but not exactly at one spot; lateral x velocities are small (see restitution.lateral_drift)
+  but depth motion of centre drops is not measured.
+- Spin is not measured; hand releases may impart small spin.
+- 'Drag: Cd from the 6 ft drops alone is degenerate with camera perspective/scale; the adopted Cd comes from the
+  16-25 in paddle drops (max 3.4 m/s), whose fall from 0.64 m reproduces the drag-reduced impact speed (3.4 vs 3.55
+  m/s free fall).'
+- Release heights are tape-measure nominal; fitted fall heights of the ball centre are given in videos.*.drop_check.
+- c-4in videos use a different (closer) camera position; flights are too low to fit the perspective term, so it
+  is fixed at 0 there.
