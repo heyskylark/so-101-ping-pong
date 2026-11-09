@@ -87,7 +87,9 @@ def main() -> None:
     with torch.inference_mode():
         for _ in range(int(args.seconds / env.step_dt)):
             a = policy(obs)
-            t_plan = st.ctrl.bouncer.t_hit.clone()  # the step may already replan for the next impact
+            # Read before the step: during it the bouncer may replan for the next impact and moves its goal on.
+            t_plan = st.ctrl.bouncer.t_hit.clone()
+            base = st.ctrl.goal_base().clone()  # what this step's action is added to
             obs, _, dones, _ = venv.step(a)
             s = st.sum
             count += s["good"].float()
@@ -99,7 +101,6 @@ def main() -> None:
                 hits.append(torch.stack([s["apex"][g], s["landing_err"][g], s["lateral"][g], late[g]], 1))
             done = dones.bool()
             live = s["released"] & ~done
-            base = st.ctrl.goal_base()
             dev_goal.append((arm._goal - base)[live])
             rate.append((a - prev_a)[live].norm(dim=-1))
             clipped.append(((arm._goal <= st.kin.lo) | (arm._goal >= st.kin.hi))[live].float())
