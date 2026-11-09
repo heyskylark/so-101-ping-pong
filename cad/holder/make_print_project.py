@@ -186,7 +186,7 @@ def add_support_blockers(path: Path, blockers: dict[str, list[np.ndarray]]) -> N
     tmp.replace(path)
 
 
-def mark_modified(path: Path) -> None:
+def mark_modified(path: Path, overrides: dict = PROCESS_OVERRIDES) -> None:
     """List the process overrides in the 3MF's `different_settings_to_system`.
 
     The CLI leaves it empty, and Bambu Studio's GUI then reloads every unlisted key from the system preset of the same
@@ -201,7 +201,7 @@ def mark_modified(path: Path) -> None:
         for info, data in items:
             if info.filename == member:
                 cfg = json.loads(data)
-                cfg["different_settings_to_system"][0] = ";".join(sorted(PROCESS_OVERRIDES))
+                cfg["different_settings_to_system"][0] = ";".join(sorted(overrides))
                 data = json.dumps(cfg, indent=4).encode()
             z.writestr(info, data)
     tmp.replace(path)

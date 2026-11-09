@@ -22,7 +22,9 @@ one, which sees a bit more and curves at the edges.*
 - **Print `cad/overhead_mount/cam_mount_top_rotatable.stl` instead of the stock `cam_mount_top.stl`.** The stock
   plate's cross-shaped lens-holder cutout only lets the board sit with the picture's long edge across the arm. The
   modified part adds the same cutout turned 90° (a plus-shaped opening), so the board fits either way; nothing
-  else changes (`cad/overhead_mount/make_rotatable_top.py` regenerates it from the upstream STL).
+  else changes (`cad/overhead_mount/make_rotatable_top.py` regenerates it from the upstream STL). Only this top
+  section is reprinted; the middle and bottom sections stay. Sliced Bambu Studio project (X1C, PLA, ~1 h 20 min,
+  58 g): `uv run cad/overhead_mount/make_print_project.py` → `cad/overhead_mount/build/cam_mount_top_rotatable_x1c.gcode.3mf`.
 - **Portrait, as seen from the camera's position**: as if you were filming the bounce with a phone held upright
   from where the camera stands. The long edge of the picture runs from the near table up toward the arm. This
   matters a lot: in the sim (fitted servos, 20 s) the scripted bouncer keeps the ball up in 62 % of runs with both

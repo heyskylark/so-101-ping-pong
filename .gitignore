@@ -16,6 +16,7 @@ __pycache__/
 # Generated / downloaded
 cad/.cache/
 cad/holder/build/
+cad/overhead_mount/build/
 sim/build/
 sim/logs/
 sim/outputs/
