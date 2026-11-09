@@ -9,6 +9,7 @@ from dataclasses import replace
 
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs import mdp as mj_mdp
+from mjlab.envs.mdp import dr
 from mjlab.managers.event_manager import EventTermCfg
 from mjlab.managers.metrics_manager import MetricsTermCfg
 from mjlab.managers.observation_manager import ObservationGroupCfg, ObservationTermCfg
@@ -65,8 +66,20 @@ def make_env_cfg(residual: bool = True, play: bool = False) -> ManagerBasedRlEnv
 
     events = {
         "servo_init": EventTermCfg(func=servo_init, mode="startup"),
+        # Masses once per world (set_const recompute; 4096 worlds cover the range): ball 2.5-3.0 g, paddle +-5 %.
+        "ball_mass": EventTermCfg(func=dr.pseudo_inertia, mode="startup",
+                                  params={"alpha_range": (-0.045, 0.045),
+                                          "asset_cfg": SceneEntityCfg("ball", body_names=("ball",))}),
+        "paddle_mass": EventTermCfg(func=dr.pseudo_inertia, mode="startup",
+                                    params={"alpha_range": (-0.025, 0.025),
+                                            "asset_cfg": SceneEntityCfg("robot", body_names=("paddle",))}),
         "reset_episode": EventTermCfg(func=mdp.reset_episode, mode="reset", params={"task": task}),
+        # Restitution ~0.50-0.65 per episode.
+        "ball_contact": EventTermCfg(func=mdp.randomize_ball_contact, mode="reset",
+                                     params={"dampratio": (0.155, 0.235)}),
         "hold_ball": EventTermCfg(func=mdp.hold_ball, mode="step"),
+        "push_ball": EventTermCfg(func=mdp.push_ball, mode="interval", interval_range_s=(1.0, 4.0),
+                                  params={"dv": 0.1}),
     }
 
     rewards = {

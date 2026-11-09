@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 import torch
 from mjlab.managers.action_manager import ActionTerm, ActionTermCfg
+from mjlab.managers.event_manager import requires_model_fields
 
 from pingpong_sim.robot import ARM_JOINTS
 from pingpong_sim.servo_actuator import encoder_pos, encoder_vel
@@ -26,15 +27,41 @@ def reset_episode(env, env_ids, task: TaskCfg) -> None:
     """Reset: arm at ready (+ noise), ball held or flying, fresh camera draw, filter, bouncer plan. `task` configures
     the shared task state (read once, when the state is created)."""
     del task
-    if isinstance(env_ids, slice) or env_ids is None:
-        env_ids = torch.arange(env.num_envs, device=env.device)
-    get(env).reset(env_ids)
+    get(env).reset(_ids(env, env_ids))
 
 
 def hold_ball(env, env_ids) -> None:
     """Step: keep the held balls still until their release time."""
     del env_ids
     get(env).hold()
+
+
+def _ids(env, env_ids) -> torch.Tensor:
+    return torch.arange(env.num_envs, device=env.device) if env_ids is None or isinstance(env_ids, slice) else env_ids
+
+
+@requires_model_fields("pair_solref")
+def randomize_ball_contact(env, env_ids, dampratio: tuple[float, float]) -> None:
+    """Reset: ball-blade contact damping ratio, which sets the restitution (0.155-0.235 ~ e 0.65-0.51 at 1 ms,
+    scripts/contact_sweep.py; nominal 0.19 ~ 0.58). The drag coefficient can't vary per world: MuJoCo Warp 3.7 keeps
+    `geom_fluid` shared."""
+    env_ids = _ids(env, env_ids)
+    pid = env.sim.mj_model.pair("ball_blade").id
+    lo, hi = dampratio
+    env.sim.model.pair_solref[env_ids, pid, 1] = lo + (hi - lo) * torch.rand(len(env_ids), device=env.device)
+
+
+def push_ball(env, env_ids, dv: float) -> None:
+    """Interval: add a uniform +-dv velocity kick (per axis) to released balls (air drafts, spin effects)."""
+    st = get(env)
+    env_ids = _ids(env, env_ids)
+    env_ids = env_ids[st.now >= st.release[env_ids]]
+    if len(env_ids) == 0:
+        return
+    ball = st.ball
+    vel = torch.cat([ball.data.root_link_lin_vel_w[env_ids], ball.data.root_link_ang_vel_w[env_ids]], dim=-1)
+    vel[:, :3] += dv * (2 * torch.rand(len(env_ids), 3, device=env.device) - 1)
+    ball.write_root_link_velocity_to_sim(vel, env_ids=env_ids)
 
 
 # -- actions -------------------------------------------------------------------------------------------------------
