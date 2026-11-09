@@ -225,7 +225,7 @@ Reference: Rhoban [`mjlab_microban`](https://github.com/Rhoban/mjlab_microban) (
 
       Failures split evenly between drops and drift; tracking error p50/p90 8 / 17 mm. Training curve flat after
       ~iteration 100 (bounces per finished episode 38–41); action std 0.30 → 0.07.
-- [x] `residual_v1` behaviour (`eval_task.py`, same run as above, second seed: 91.7 % full episodes):
+- [x] `residual_v1` behaviour (`eval_task.py`, 256 worlds × 40 s, a second run: 91.7 % full episodes):
 
       | Per bounce | Scripted bouncer | `residual_v1` |
       |---|---|---|
