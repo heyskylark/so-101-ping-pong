@@ -18,8 +18,8 @@ Per frame, per world:
 4. Measurement: pixel centre and diameter with noise (plus centroid noise from motion blur over the exposure),
    undistorted with the believed focal length into [x/z, y/z, alpha] for the filter.
 5. Believed pose and time: the overhead camera's calibrated extrinsics (true pose + calibration error); the wrist
-   camera's pose from the encoder angles at the believed capture time (forward kinematics, CAD mount). Timestamps
-   carry a per-world bias and per-frame jitter.
+   camera's pose from the encoder angles at the believed capture time (the controller's `ArmHistory`: forward
+   kinematics, CAD mount). Timestamps carry a per-world bias and per-frame jitter.
 
 Per-world parameters are drawn at `reset` from the ranges in `CameraSimCfg`.
 
@@ -38,7 +38,7 @@ import torch
 
 from pingpong_sim.ball import BALL_RADIUS
 from pingpong_sim.ball_filter import TickHistory, flight, orthonormalize
-from pingpong_sim.kinematics import ArmKinematics
+
 
 TILT = math.radians(25.0)  # overhead camera plate, from straight down (Overhead_Cam_Mount_32x32 cam_mount_top.stl)
 
@@ -117,20 +117,17 @@ def _box(n, rng, dev):
 
 class CameraRig:
     """Camera simulation for `num_envs` worlds, ticking every `dt`. Call `record` once per control tick (after
-    physics), then `detect`."""
+    physics, and after the controller's `sense` pushed this tick to `arm`), then `detect`. `arm`: the encoder-derived
+    history (`controller.ArmHistory.hist`) the deployment uses for the wrist camera pose."""
 
-    def __init__(self, cams: list[CameraSimCfg], num_envs: int, dt: float, kin: ArmKinematics, device,
-                 blade_radius: float = 0.075, truth_ticks: int = 16, arm_ticks: int = 32):
-        self.cams, self.n, self.dt, self.kin, self.dev = cams, num_envs, dt, kin, device
+    def __init__(self, cams: list[CameraSimCfg], num_envs: int, dt: float, arm: TickHistory, device,
+                 blade_radius: float = 0.075, truth_ticks: int = 16):
+        self.cams, self.n, self.dt, self.arm, self.dev = cams, num_envs, dt, arm, device
         self.blade_radius = blade_radius
         self.truth = TickHistory(num_envs, truth_ticks, dt, {"p": (3,), "v": (3,), "center": (3,), "normal": (3,),
                                                              "wR": (3, 3), "wp": (3,)}, device)
-        # What the deployment computes from the encoders: the filter's paddle history and the wrist camera pose.
-        self.arm = TickHistory(num_envs, arm_ticks, dt, {"center": (3,), "normal": (3,), "vel": (3,),
-                                                        "wR": (3, 3), "wp": (3,)}, device)
         self.t_reset = torch.zeros(num_envs, device=device)
         self.params: list[dict[str, torch.Tensor]] = [dict() for _ in cams]
-        self._prev_face: torch.Tensor | None = None
         self.reset(torch.arange(num_envs, device=device), now=0.0)
 
     def reset(self, env_ids: torch.Tensor, now: float) -> None:
@@ -171,22 +168,14 @@ class CameraRig:
                 put("mount_R", dR)
                 put("mount_p", dp)
 
-    def record(self, now: float, ball_p, ball_v, face, normal, wrist_R, wrist_p, q_enc) -> None:
+    def record(self, now: float, ball_p, ball_v, face, normal, wrist_R, wrist_p) -> None:
         """True ball state, true paddle face (centre, normal) and wrist camera pose (OpenCV axes) after this tick's
-        physics, and the encoder angles (B, 5)."""
+        physics."""
         self.truth.push(now, p=ball_p, v=ball_v, center=face, normal=normal, wR=wrist_R, wp=wrist_p)
-        f, nrm, _, _ = self.kin.fk(q_enc)
-        wR, wp = self.kin.wrist_camera(q_enc)
-        vel = torch.zeros_like(f) if self._prev_face is None else (f - self._prev_face) / self.dt
-        self._prev_face = f
-        self.arm.push(now, center=f, normal=nrm, vel=vel, wR=wR, wp=wp)
 
     def restart(self, env_ids: torch.Tensor) -> None:
         """After `record`: make the latest sample the whole history of env_ids (their world was just reset)."""
-        last = (self.arm.count - 1) % self.arm.L
-        self.arm.buf["vel"][env_ids, last] = 0.0
         self.truth.hold_last(env_ids)
-        self.arm.hold_last(env_ids)
 
     # -- truth at arbitrary times ------------------------------------------------------------------------------------
 

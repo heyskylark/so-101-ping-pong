@@ -1,11 +1,10 @@
 """Per-env state of the bounce task, shared by its MDP terms (`mdp.py`).
 
 Created on first use (`get(env)`) from the `reset_episode` event's `task` parameter and stored on the env:
-- Ball pipeline: simulated overhead + wrist cameras -> BallFilter, updated once per control step after physics
-  (`update`). This is the estimate the deployed policy gets; the true ball state only reaches the critic, rewards,
-  terminations and metrics.
-- Scripted bouncer on that estimate: the residual policy's base command, plus its impact prediction (an
-  observation for both policies).
+- Sensors -> servo goals: `controller.BounceController`, the code the deployment runs. Simulated overhead + wrist
+  cameras feed its ball filter once per control step after physics (`update`); its estimate is what the policy
+  gets, the true ball state only reaches the critic, rewards, terminations and metrics. Its scripted bouncer gives
+  the residual policy's base command and the impact prediction (an observation for both policies).
 - Launch phase: the ball is held still "in a hand" until a per-episode release time (some episodes start
   mid-flight instead).
 - Bounce bookkeeping from the true state (`summary`), once per control step.
@@ -15,15 +14,15 @@ Clock: env.common_step_counter * step_dt, shared by all worlds and running throu
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field, replace
 
 import torch
 
 from pingpong_sim.ball import BALL_RADIUS, DRAG_K, G
-from pingpong_sim.ball_filter import BallFilter, BallFilterCfg
-from pingpong_sim.bouncer import BouncerCfg, ScriptedBouncer
+from pingpong_sim.ball_filter import BallFilterCfg
+from pingpong_sim.bouncer import BouncerCfg
 from pingpong_sim.camera_sim import OVERHEAD, WRIST, CameraRig, CameraSimCfg
+from pingpong_sim.controller import BounceController, ControllerCfg, paddle_from_encoders
 from pingpong_sim.kinematics import ArmKinematics
 from pingpong_sim.robot import ARM_JOINTS, READY_JOINT_POS
 from pingpong_sim.servo_actuator import encoder_pos, encoder_vel
@@ -50,6 +49,10 @@ class TaskCfg:
     # Bounce detection (true state): relative normal velocity flips from approach to departure near the face.
     bounce_vn: float = 0.05  # m/s
     min_apex: float = 0.05  # m, outgoing rise for a bounce to count
+
+    def controller_cfg(self) -> ControllerCfg:
+        return ControllerCfg(target_xy=self.target_xy, hit_z=self.hit_z, apex=self.apex, filter=self.filter,
+                             bouncer=self.bouncer, use_bouncer=self.use_bouncer, trust_vel_std=self.trust_vel_std)
 
 
 def get(env) -> PingPongState:
@@ -80,23 +83,14 @@ class PingPongState:
         self.qa, self.va = int(m.jnt_qposadr[jb]), int(m.jnt_dofadr[jb])
         self.flip = torch.diag(torch.tensor([1.0, -1.0, -1.0], device=dev))  # MuJoCo camera axes -> OpenCV
         dt = env.step_dt
-        self.rig = CameraRig(list(cfg.cameras), n, dt, self.kin, dev)
-        self.filter = BallFilter(cfg.filter, n, dev)
-        self.bouncer = ScriptedBouncer(replace(cfg.bouncer, target_xy=cfg.target_xy, hit_z=cfg.hit_z, apex=cfg.apex),
-                                       self.kin, self.q_ready, n)
+        self.ctrl = BounceController(cfg.controller_cfg(), self.kin, self.q_ready, n, dt, dev)
+        self.rig = CameraRig(list(cfg.cameras), n, dt, self.ctrl.arm.hist, dev)
         z3 = torch.zeros(n, 3, device=dev)
         z1 = torch.zeros(n, device=dev)
         self.release = z1.clone()  # time the ball is let go
         self.hold_p = z3.clone()
         self._restart = torch.zeros(n, dtype=torch.bool, device=dev)
         self._updated = -1
-        # Estimate (`update`).
-        self.est_p, self.est_v = z3.clone(), z3.clone()
-        self.p_std, self.v_std, self.age = z1.clone(), z1.clone(), z1.clone()
-        self.tracked = torch.zeros(n, dtype=torch.bool, device=dev)
-        self.trusted = self.tracked.clone()
-        self.pred_t, self.pred_p, self.pred_v = torch.full((n,), math.inf, device=dev), z3.clone(), z3.clone()
-        self.base = self.q_ready.expand(n, 5).clone()  # bouncer goal
         self.track_err = z1.clone()  # |estimate - truth| at the last update (tracked, released), for metrics
         # Nothing is tracked before the first episode reset (mjlab probes the observation shapes before it).
         self._ready = False
@@ -132,8 +126,7 @@ class PingPongState:
         self.release[env_ids] = torch.where(mid, torch.full_like(p[:, 0], now), now + u(*cfg.hold_time))
         # Pipeline and bookkeeping.
         self.rig.reset(env_ids, now)
-        self.filter.reset(env_ids)
-        self.bouncer.reset(env_ids, now)
+        self.ctrl.reset(env_ids, now)
         self._restart[env_ids] = True
         self.prev_vn[env_ids] = 0.0
         self.bounces[env_ids] = 0
@@ -158,7 +151,8 @@ class PingPongState:
         return d.site_xpos[:, self.site], d.site_xmat[:, self.site].reshape(self.n, 3, 3)[:, :, 2]
 
     def update(self) -> None:
-        """Cameras -> filter -> bouncer, once per control step (lazy: the first caller after physics runs it)."""
+        """Encoders + cameras -> controller (filter, bouncer), once per control step (lazy: the first caller after
+        physics runs it)."""
         if not self._ready or self.env.common_step_counter == self._updated:
             return
         self._updated = self.env.common_step_counter
@@ -166,31 +160,21 @@ class PingPongState:
         d = self.env.sim.data
         p, v = self.ball_true()
         face, normal = self.face_true()
+        self.ctrl.sense(now, encoder_pos(self.robot), encoder_vel(self.robot))
         wR = d.cam_xmat[:, self.wcam].reshape(n, 3, 3) @ self.flip
-        self.rig.record(now, p, v, face, normal, wR, d.cam_xpos[:, self.wcam], encoder_pos(self.robot))
+        self.rig.record(now, p, v, face, normal, wR, d.cam_xpos[:, self.wcam])
         if self._restart.any():
             ids = self._restart.nonzero(as_tuple=True)[0]
             self.rig.restart(ids)
             self._restart[ids] = False
-        det = self.rig.detect(now)
-        for c in range(len(self.rig.cams)):
-            self.filter.update(det["t"][c], det["R"][c], det["p"][c], det["z"][c], det["sigma"][c], det["valid"][c],
-                               self.rig.arm)
-        self.est_p, self.est_v, self.p_std, self.v_std, self.age, self.tracked = self.filter.estimate(now, self.rig.arm)
-        self.trusted = self.tracked & (self.v_std < self.cfg.trust_vel_std)
-        ok = self.tracked & (now >= self.release)
-        self.track_err = torch.where(ok, (self.est_p - p).norm(dim=-1), torch.zeros_like(self.age))
-        plan_p = torch.where(self.trusted[:, None], self.est_p, torch.full_like(self.est_p, -1.0))  # -1: nothing to hit
-        self.pred_t, self.pred_p, self.pred_v = self.bouncer.predict(plan_p, self.est_v)
-        if self.cfg.use_bouncer:
-            self.base = self.bouncer.step(now, plan_p, self.est_v, prediction=(self.pred_t, self.pred_p, self.pred_v))
+        self.ctrl.update(self.rig.detect(now))
+        ok = self.ctrl.tracked & (now >= self.release)
+        self.track_err = torch.where(ok, (self.ctrl.est_p - p).norm(dim=-1), torch.zeros_like(self.ctrl.age))
 
     def paddle_from_encoders(self):
-        """Face centre, normal and velocity from the encoders (what the deployed policy can compute)."""
-        q, qd = encoder_pos(self.robot), encoder_vel(self.robot)
-        face, normal, o, a = self.kin.fk(q)
-        Jp, _ = self.kin.jacobian(face, normal, o, a)
-        return face, normal, (Jp @ qd[:, :, None])[:, :, 0]
+        """Face centre, normal and velocity from the encoders right now (the controller's copy is from its last
+        `sense`, which rewards and terminations run before)."""
+        return paddle_from_encoders(self.kin, encoder_pos(self.robot), encoder_vel(self.robot))
 
     def summary(self) -> dict[str, torch.Tensor]:
         """True-state bounce events of this control step (once per step; rewards, terminations, metrics)."""

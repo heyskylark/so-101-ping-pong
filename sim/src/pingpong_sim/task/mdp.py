@@ -14,8 +14,9 @@ import torch
 from mjlab.managers.action_manager import ActionTerm, ActionTermCfg
 from mjlab.managers.event_manager import requires_model_fields
 
+from pingpong_sim.controller import BounceController
 from pingpong_sim.robot import ARM_JOINTS
-from pingpong_sim.servo_actuator import encoder_pos, encoder_vel
+from pingpong_sim.servo_actuator import encoder_vel
 from pingpong_sim.task.state import PingPongState, TaskCfg, get
 
 __all__ = ["TaskCfg"]
@@ -102,8 +103,7 @@ class BounceAction(ActionTerm):
         st = get(self._env)
         st.update()  # normally done by the last observation already
         self._raw[:] = actions
-        base = st.base if self.cfg.residual else st.q_ready
-        self._goal = torch.clamp(base + self.cfg.scale * actions, st.kin.lo, st.kin.hi)
+        self._goal = torch.clamp(st.ctrl.goal_base() + self.cfg.scale * actions, st.kin.lo, st.kin.hi)
 
     def apply_actions(self) -> None:
         self._entity.set_joint_position_target(self._goal, joint_ids=self._ids)
@@ -121,49 +121,41 @@ def _st(env) -> PingPongState:
     return st
 
 
+def _ctrl(env) -> BounceController:
+    """The deployment builds the same terms from the same controller (controller.OnnxPolicy)."""
+    return _st(env).ctrl
+
+
 def joint_pos(env) -> torch.Tensor:
     """Encoder angles relative to the ready pose (5)."""
-    st = _st(env)
-    return encoder_pos(st.robot) - st.q_ready
+    return _ctrl(env).obs_joint_pos()
 
 
 def joint_vel(env) -> torch.Tensor:
     """Encoder velocities (5)."""
-    return encoder_vel(_st(env).robot)
+    return _ctrl(env).obs_joint_vel()
 
 
 def paddle(env) -> torch.Tensor:
     """Blade face centre relative to its target, face normal, face velocity, from the encoders (9)."""
-    st = _st(env)
-    face, normal, vel = st.paddle_from_encoders()
-    return torch.cat([face - st.face_target, normal, vel], dim=-1)
+    return _ctrl(env).obs_paddle()
 
 
 def ball_estimate(env) -> torch.Tensor:
     """Ball filter estimate: position relative to the impact target, velocity, position / velocity std, time since
     the last detection (capped at 0.5 s), tracked flag (10)."""
-    st = _st(env)
-    trk = st.tracked[:, None]
-    p = torch.where(trk, st.est_p - st.target, torch.zeros_like(st.est_p))
-    return torch.cat([p, st.est_v, st.p_std[:, None], st.v_std[:, None], st.age.clamp(0, 0.5)[:, None],
-                      trk.float()], dim=-1)
+    return _ctrl(env).obs_ball()
 
 
 def impact_prediction(env) -> torch.Tensor:
     """Predicted crossing of the hitting plane on a converged track: time to it (capped at 1.2 s), position
     relative to the target, incoming velocity, valid flag (7)."""
-    st = _st(env)
-    ok = torch.isfinite(st.pred_t)
-    okf = ok[:, None].float()
-    t = torch.where(ok, st.pred_t, torch.full_like(st.pred_t, 1.2)).clamp(0, 1.2)
-    return torch.cat([t[:, None], (st.pred_p[:, :2] - st.target[:2]) * okf, st.pred_v * okf, okf], dim=-1)
+    return _ctrl(env).obs_impact()
 
 
 def bouncer_command(env) -> torch.Tensor:
     """Scripted bouncer goal relative to ready, and time to its planned impact (capped to [-0.2, 1.2] s) (6)."""
-    st = _st(env)
-    t = (st.bouncer.t_hit - st.now).clamp(-0.2, 1.2)
-    return torch.cat([st.base - st.q_ready, t[:, None]], dim=-1)
+    return _ctrl(env).obs_bouncer()
 
 
 # -- observations (critic, privileged) -----------------------------------------------------------------------------
@@ -270,4 +262,4 @@ def tracking_error(env) -> torch.Tensor:
 
 
 def tracked(env) -> torch.Tensor:
-    return get(env).tracked.float()
+    return get(env).ctrl.tracked.float()

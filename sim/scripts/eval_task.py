@@ -87,19 +87,19 @@ def main() -> None:
     with torch.inference_mode():
         for _ in range(int(args.seconds / env.step_dt)):
             a = policy(obs)
-            t_plan = st.bouncer.t_hit.clone()  # the step may already replan for the next impact
+            t_plan = st.ctrl.bouncer.t_hit.clone()  # the step may already replan for the next impact
             obs, _, dones, _ = venv.step(a)
             s = st.sum
             count += s["good"].float()
             err.append(st.track_err[st.track_err > 0])
-            trk.append(st.tracked.float().mean())
+            trk.append(st.ctrl.tracked.float().mean())
             g = s["good"]
             if g.any():
-                late = (st.now - t_plan) if st.cfg.use_bouncer else torch.full_like(st.age, torch.nan)
+                late = (st.now - t_plan) if st.cfg.use_bouncer else torch.full_like(st.track_err, torch.nan)
                 hits.append(torch.stack([s["apex"][g], s["landing_err"][g], s["lateral"][g], late[g]], 1))
             done = dones.bool()
             live = s["released"] & ~done
-            base = st.base if st.cfg.use_bouncer else st.q_ready.expand(n, 5)
+            base = st.ctrl.goal_base()
             dev_goal.append((arm._goal - base)[live])
             rate.append((a - prev_a)[live].norm(dim=-1))
             clipped.append(((arm._goal <= st.kin.lo) | (arm._goal >= st.kin.hi))[live].float())

@@ -29,6 +29,7 @@ from pingpong_sim.ball import BALL_RADIUS, SIM_DT
 from pingpong_sim.ball_filter import BallFilter, BallFilterCfg
 from pingpong_sim.bouncer import BouncerCfg, ScriptedBouncer
 from pingpong_sim.camera_sim import OVERHEAD, WRIST, CameraRig, ideal
+from pingpong_sim.controller import ArmHistory
 from pingpong_sim.harness import make_harness, step
 from pingpong_sim.kinematics import ArmKinematics
 from pingpong_sim.robot import ARM_JOINTS, READY_JOINT_POS
@@ -112,7 +113,8 @@ def main() -> None:
         cams = {"overhead": replace(OVERHEAD, long_axis=args.overhead_long), "wrist": replace(WRIST, long_axis=args.wrist_long)}
         if args.ideal_cameras:
             cams = {k: ideal(c) for k, c in cams.items()}
-        rig = CameraRig([cams[c] for c in args.cameras], n, CONTROL_DT, kin, dev)
+        arm = ArmHistory(kin, n, CONTROL_DT, dev)
+        rig = CameraRig([cams[c] for c in args.cameras], n, CONTROL_DT, arm.hist, dev)
         filt = BallFilter(BallFilterCfg(), n, dev)
         site = m.site("robot/blade_face_cap").id
         wcam = m.camera("robot/wrist_cam").id
@@ -129,11 +131,12 @@ def main() -> None:
             face = d.site_xpos[:, site]
             normal = d.site_xmat[:, site].reshape(n, 3, 3)[:, :, 2]
             wR = d.cam_xmat[:, wcam].reshape(n, 3, 3) @ flip
-            rig.record(now, p, v, face, normal, wR, d.cam_xpos[:, wcam], encoder_pos(h.robot))
+            arm.push(now, encoder_pos(h.robot))
+            rig.record(now, p, v, face, normal, wR, d.cam_xpos[:, wcam])
             det = rig.detect(now)
             for c in range(len(args.cameras)):
-                filt.update(det["t"][c], det["R"][c], det["p"][c], det["z"][c], det["sigma"][c], det["valid"][c], rig.arm)
-            p_obs, v_obs, p_std, v_std, age, tracked = filt.estimate(now, rig.arm)
+                filt.update(det["t"][c], det["R"][c], det["p"][c], det["z"][c], det["sigma"][c], det["valid"][c], arm.hist)
+            p_obs, v_obs, p_std, v_std, age, tracked = filt.estimate(now, arm.hist)
             # Plan only on a converged track (a fresh one has velocity 0 +- 3 m/s); otherwise nothing to hit.
             trusted = tracked & (v_std < TRUST_VEL_STD)
             q_cmd = ctrl.step(now, torch.where(trusted[:, None], p_obs, torch.full_like(p_obs, -1.0)), v_obs)
