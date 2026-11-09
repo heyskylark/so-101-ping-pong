@@ -215,9 +215,19 @@ Reference: Rhoban [`mjlab_microban`](https://github.com/Rhoban/mjlab_microban) (
       more than its views add); keep it as an optional source and re-check with the RL policy.
 - [ ] Tracking speed: rig + filter cost ~57 ms per control tick at 4096 worlds (launch-bound torch, ~40 ms of it the
       filter). CUDA-graph / fuse before long training runs. Deployment: filter 3.8 ms per tick on CPU (1 world).
-- [ ] Train: `residual_v1` (2000 it × 4096 worlds, 26k steps/s ≈ 2.8 h; started before the physics
-      randomization was added) → evaluate with `eval_task.py` vs the zero-action baseline → direct policy →
-      sim2sim check in CPU MuJoCo → ONNX export.
+- [x] Train `residual_v1` (2000 it × 4096 worlds, 26k steps/s, 2.8 h; trained without the ball/paddle physics
+      randomization, evaluated with it). `eval_task.py`, 256 worlds × 40 s, same env and randomization:
+
+      | | Episodes lasting 20 s | Bounces p10 / p50 / p90 | Mean |
+      |---|---|---|---|
+      | Scripted bouncer (zero action) | 7.4 % | 1 / 6 / 31 | 10.2 |
+      | `residual_v1` (model_1999) | 90.5 % | 39 / 44 / 48 | 41.0 |
+
+      Failures split evenly between drops and drift; tracking error p50/p90 8 / 17 mm. Training curve flat after
+      ~iteration 100 (bounces per finished episode 38–41); action std 0.30 → 0.07.
+- [ ] Next: train with the physics randomization (`residual_v2`); direct policy for comparison; sim2sim check in
+      CPU MuJoCo; ONNX export; check the policy's behaviour (residual size, stroke timing) before trusting it on
+      hardware.
 
 No camera rendering in the RL loop: train on the deployment filter fed by simulated detections.
 
