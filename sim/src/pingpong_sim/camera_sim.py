@@ -79,6 +79,7 @@ class CameraSimCfg:
     false_rate: tuple[float, float] = (0.0, 0.02)
     min_range: float = 0.08  # m
     min_diameter_px: float = 4.0
+    enable_prob: float = 1.0  # chance the camera is present in an episode (train without an optional camera)
 
 
 OVERHEAD = CameraSimCfg(name="overhead", mount="world")
@@ -138,8 +139,8 @@ class CameraRig:
         self.t_reset[env_ids] = now
         for c, cfg in enumerate(self.cams):
             P = self.params[c]
-            put = lambda name, val: P.setdefault(name, torch.zeros(self.n, *val.shape[1:], device=dev)).__setitem__(  # noqa: E731
-                env_ids, val)
+            put = lambda name, val: P.setdefault(name, torch.zeros(self.n, *val.shape[1:], dtype=val.dtype,  # noqa: E731
+                                                                   device=dev)).__setitem__(env_ids, val)
             fps = _uniform(*cfg.fps, k, dev)
             put("period", 1.0 / fps)
             put("phase", torch.rand(k, device=dev) / fps)
@@ -150,6 +151,7 @@ class CameraRig:
                               ("dropout", cfg.dropout), ("false_rate", cfg.false_rate)):
                 put(name, _uniform(*rng, k, dev))
             put("focal", cfg.px_per_rad * torch.ones(k, device=dev))
+            put("enabled", torch.rand(k, device=dev) < cfg.enable_prob)
             put("focal_believed", cfg.px_per_rad * (1 + cfg.focal_error * (2 * torch.rand(k, device=dev) - 1)))
             dR, dp = _small_rotation(k, cfg.rot_range_deg, dev), _box(k, cfg.pos_range, dev)
             if cfg.mount == "world":
@@ -178,6 +180,13 @@ class CameraRig:
         vel = torch.zeros_like(f) if self._prev_face is None else (f - self._prev_face) / self.dt
         self._prev_face = f
         self.arm.push(now, center=f, normal=nrm, vel=vel, wR=wR, wp=wp)
+
+    def restart(self, env_ids: torch.Tensor) -> None:
+        """After `record`: make the latest sample the whole history of env_ids (their world was just reset)."""
+        last = (self.arm.count - 1) % self.arm.L
+        self.arm.buf["vel"][env_ids, last] = 0.0
+        self.truth.hold_last(env_ids)
+        self.arm.hold_last(env_ids)
 
     # -- truth at arbitrary times ------------------------------------------------------------------------------------
 
@@ -233,7 +242,7 @@ class CameraRig:
         lag = P["exposure"] + P["readout"] + P["latency"]
         frame = torch.floor((now - lag - P["phase"]) / P["period"])
         t_start = P["phase"] + frame * P["period"]
-        arrived = (t_start + lag) > now - self.dt + 1e-9
+        arrived = ((t_start + lag) > now - self.dt + 1e-9) & P["enabled"]
         # Capture time of the ball's row (fixed point; the row barely moves within a frame).
         tc = t_start + P["exposure"] / 2 + P["readout"] / 2
         for _ in range(2):

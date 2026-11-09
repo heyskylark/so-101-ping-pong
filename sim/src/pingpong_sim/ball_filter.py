@@ -130,6 +130,12 @@ class TickHistory:
         for k, v in values.items():
             self.buf[k][env_ids] = v[:, None].expand_as(self.buf[k][env_ids])
 
+    def hold_last(self, env_ids: torch.Tensor) -> None:
+        """Overwrite the whole history of env_ids with their latest sample (after a reset)."""
+        last = (self.count - 1) % self.L
+        for b in self.buf.values():
+            b[env_ids] = b[env_ids, last][:, None].expand_as(b[env_ids])
+
     def samples(self, t: torch.Tensor, keys=None):
         """The two samples around per-world times t (B,): dicts of values (`keys`, default all) at the earlier and
         the later tick, and the time from the earlier tick to t (B,), clamped to the buffer."""

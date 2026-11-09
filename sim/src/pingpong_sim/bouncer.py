@@ -30,6 +30,7 @@ from dataclasses import dataclass
 import torch
 
 from pingpong_sim.ball import BALL_RADIUS, DRAG_K, G
+from pingpong_sim.ball_filter import flight
 from pingpong_sim.kinematics import ArmKinematics
 from pingpong_sim.robot import ASSETS
 
@@ -51,7 +52,7 @@ class BouncerCfg:
     lock: float = 0.03  # s, no replanning this close to the stroke start
     follow: float = 0.15  # s, follow-through back to the ready pose after impact
     min_approach: float = 0.04  # s, shortest approach segment
-    predict_dt: float = 0.004  # s
+    predict_dt: float = 0.02  # s, RK4 flight steps (crossing time by interpolation: ~0.2 ms error)
     predict_horizon: float = 1.2  # s
     feedforward: bool = True  # invert the identified tracking model (else send the plan as the goal)
 
@@ -102,6 +103,18 @@ class ScriptedBouncer:
         self.plan_tilt = z.clone()  # face tilt from vertical [rad]
         self.plan_ik_err = z.clone()  # m
 
+    def reset(self, env_ids: torch.Tensor, now: float) -> None:
+        """Drop the plans of env_ids: hold the ready pose until the next plan (episode reset at time `now`)."""
+        self.t_hit[env_ids] = now - 1.0
+        self.a_t0[env_ids] = now - 2.0
+        self.a_T[env_ids] = 1.0
+        for buf in (self.a_p0, self.q_cock, self.q_hit):
+            buf[env_ids] = self.q_ready[env_ids]
+        self.a_v0[env_ids] = 0.0
+        self.plan_speed[env_ids] = 0.0
+        self.plan_tilt[env_ids] = 0.0
+        self.plan_ik_err[env_ids] = 0.0
+
     def evaluate(self, t: torch.Tensor):
         """Planned joint angles, velocities and accelerations at times t (B,)."""
         Ts = self.Ts
@@ -128,34 +141,32 @@ class ScriptedBouncer:
         ball position and velocity there."""
         cfg = self.cfg
         dt = cfg.predict_dt
-        g = torch.tensor([0.0, 0.0, -G], device=self.dev)
+        h = torch.full((self.n,), dt, device=self.dev)
         t_hit = torch.full((self.n,), math.inf, device=self.dev)
         p_hit, v_hit = p.clone(), v.clone()
         found = torch.zeros(self.n, dtype=torch.bool, device=self.dev)
         for k in range(int(cfg.predict_horizon / dt)):
-            a = g - DRAG_K * v.norm(dim=1, keepdim=True) * v
-            v_next = v + a * dt
-            p_next = p + 0.5 * (v + v_next) * dt
+            p_next, v_next = flight(p, v, h)
             cross = (~found) & (p[:, 2] >= self.z_ball) & (p_next[:, 2] < self.z_ball) & (v_next[:, 2] < 0)
-            if cross.any():
-                f = ((p[:, 2] - self.z_ball) / (p[:, 2] - p_next[:, 2]).clamp_min(1e-9))[:, None]
-                t_hit = torch.where(cross, (k + f[:, 0]) * dt, t_hit)
-                p_hit = torch.where(cross[:, None], p + f * (p_next - p), p_hit)
-                v_hit = torch.where(cross[:, None], v + f * (v_next - v), v_hit)
-                found |= cross
-                if found.all():
-                    break
+            f = ((p[:, 2] - self.z_ball) / (p[:, 2] - p_next[:, 2]).clamp_min(1e-9))[:, None]
+            t_hit = torch.where(cross, (k + f[:, 0]) * dt, t_hit)
+            p_hit = torch.where(cross[:, None], p + f * (p_next - p), p_hit)
+            v_hit = torch.where(cross[:, None], v + f * (v_next - v), v_hit)
+            found |= cross
+            if k % 8 == 7 and bool(found.all()):  # host sync only every 8 steps
+                break
             p, v = p_next, v_next
         return t_hit, p_hit, v_hit
 
-    def step(self, now: float, ball_p: torch.Tensor, ball_v: torch.Tensor, obs_time: float | None = None) -> torch.Tensor:
+    def step(self, now: float, ball_p: torch.Tensor, ball_v: torch.Tensor, obs_time: float | None = None,
+             prediction: tuple[torch.Tensor, torch.Tensor, torch.Tensor] | None = None) -> torch.Tensor:
         """Servo goals (B, 5) for this control step, given the (estimated) ball state measured at `obs_time`
         (default: now). Predicting from the measurement time is what the real Kalman filter does with its known
-        latency."""
+        latency. `prediction`: `predict(ball_p, ball_v)` if the caller already has it."""
         cfg = self.cfg
         t_cmd = now + self.lead
         q_c, qd_c, _ = self.evaluate(t_cmd)
-        dt_hit, p_in, v_in = self.predict(ball_p, ball_v)
+        dt_hit, p_in, v_in = prediction if prediction is not None else self.predict(ball_p, ball_v)
         t_hit = (now if obs_time is None else obs_time) + dt_hit
         # Refine during the approach (until `lock` before the stroke); start a new plan once the follow-through is
         # done; never during the stroke or the follow-through.

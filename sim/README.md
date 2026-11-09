@@ -20,6 +20,10 @@ uv run scripts/run_bouncer.py [--randomize] [--ball-latency 30 --ball-noise 2]  
 uv run scripts/run_bouncer.py --cameras overhead wrist [--ideal-cameras] [--overhead-long y]  # ball state from simulated cameras + filter
 MUJOCO_GL=egl uv run scripts/render_camera_views.py      # camera previews for docs/camera_setup.md
 MUJOCO_GL=egl uv run scripts/run_bouncer.py --envs 2 --lead 0 --video            # + build/bouncer.mp4
+uv run scripts/eval_task.py --agent zero        # RL env with the scripted bouncer alone (residual task baseline)
+uv run scripts/train.py PingPong-Bounce-Residual --env.scene.num-envs 4096       # PPO -> logs/rsl_rl/pingpong_residual/
+uv run scripts/eval_task.py --checkpoint logs/rsl_rl/pingpong_residual/<run>/model_<n>.pt
+uv run scripts/play.py PingPong-Bounce-Residual --checkpoint-file <model.pt>     # interactive viewer
 ```
 
 ## Layout
@@ -36,6 +40,7 @@ MUJOCO_GL=egl uv run scripts/run_bouncer.py --envs 2 --lead 0 --video           
 | `src/pingpong_sim/bouncer.py` | Scripted bouncer: drag-aware impact prediction, aim from measured restitution, single-joint stroke, tracking feedforward |
 | `src/pingpong_sim/ball_filter.py` | Ball EKF shared with deployment: per-camera pixel + apparent-size updates, paddle-aware prediction through bounces, latency and out-of-order handling |
 | `src/pingpong_sim/camera_sim.py` | Simulated overhead + wrist cameras (30 fps rolling shutter, wide lens, latency, noise, blur, occlusion, dropouts, calibration error) producing the filter's detections |
+| `src/pingpong_sim/task/` | mjlab bounce task: `state.py` (per-env cameras → filter → bouncer, launch phase, true-state bounce events), `mdp.py` (events, action term, observations, rewards, terminations, metrics), `env_cfg.py` (env + PPO cfgs); registers `PingPong-Bounce-Residual` / `-Direct` |
 | `src/pingpong_sim/sysid.py` | Replays a recording in 2 s windows (n candidates × n windows worlds) and scores the encoder error |
 | `src/pingpong_sim/assets/so101/` | Menagerie `robotstudio_so101`, unmodified (commit 3abca2e, Apache-2.0) |
 | `src/pingpong_sim/assets/paddle/` | Holder, camera, paddle meshes in the holder frame (mm), from `cad/holder/export_sim_meshes.py` |
