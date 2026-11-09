@@ -1,0 +1,50 @@
+{
+    "kt": 2.217505279290508,
+    "error_gain_ratio": 1.1420320426042598,
+    "R": 4.451428904665287,
+    "armature": 0.01743066435744176,
+    "q_offset": 0.0,
+    "max_velocity": 7.2839694698846635,
+    "command_delay": 0.0049807526194816515,
+    "friction_base": 0.032819239824949414,
+    "friction_stribeck": 4.257322248151969e-05,
+    "load_friction_motor": 0.41915932210424217,
+    "load_friction_external": 0.14896821275174338,
+    "load_friction_motor_stribeck": 0.00012448975632695385,
+    "load_friction_external_stribeck": 0.1422905635963302,
+    "load_friction_motor_quad": 0.007594943296670792,
+    "load_friction_external_quad": 0.00340408727365082,
+    "dtheta_stribeck": 1.9552037068777175,
+    "alpha": 9.93094944677977,
+    "friction_viscous": 0.022418603124762345,
+    "model": "m6",
+    "actuator": "sts3215",
+    "stribeck_scale": 0.11868986732471828,
+    "delay": 0.008674859178997206,
+    "feedback_delay": 0.0002456299177514329,
+    "max_current": 2.974883423919483,
+    "gear_stiffness": [
+        387.93508491308967,
+        566.7034952294371,
+        589.2018443858624,
+        520.2190094633654,
+        112.51123699971134
+    ],
+    "gear_damping": 0.164721091578527,
+    "friction_scale": [
+        1.1893974206027191,
+        0.8696783310332048,
+        0.9227384146477449,
+        0.7510652940225746,
+        0.5659119868256463
+    ],
+    "joints": [
+        "shoulder_pan",
+        "shoulder_lift",
+        "elbow_flex",
+        "wrist_flex",
+        "wrist_roll"
+    ],
+    "fitted_from": "measurements/servo/2026-11-08_212508",
+    "fit_report": "measurements/servo/fit_2026-11-08_221524"
+}

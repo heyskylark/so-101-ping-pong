@@ -1,0 +1,611 @@
+{
+ "backend": "real",
+ "port": "/dev/serial/by-id/usb-1a86_USB_Single_Serial_58FD016706-if00",
+ "status": "complete",
+ "rate_hz": 100.0,
+ "joints": [
+  "shoulder_pan",
+  "shoulder_lift",
+  "elbow_flex",
+  "wrist_flex",
+  "wrist_roll"
+ ],
+ "identify": {
+  "shoulder_pan": {
+   "model": 777,
+   "firmware": "3.9"
+  },
+  "shoulder_lift": {
+   "model": 777,
+   "firmware": "3.9"
+  },
+  "elbow_flex": {
+   "model": 777,
+   "firmware": "3.9"
+  },
+  "wrist_flex": {
+   "model": 777,
+   "firmware": "3.9"
+  },
+  "wrist_roll": {
+   "model": 777,
+   "firmware": "3.9"
+  }
+ },
+ "calibration": {
+  "shoulder_pan": {
+   "min": 697,
+   "max": 3290,
+   "homing_offset": 113
+  },
+  "shoulder_lift": {
+   "min": 806,
+   "max": 3295,
+   "homing_offset": 948
+  },
+  "elbow_flex": {
+   "min": 860,
+   "max": 3061,
+   "homing_offset": -971
+  },
+  "wrist_flex": {
+   "min": 875,
+   "max": 3184,
+   "homing_offset": 53
+  },
+  "wrist_roll": {
+   "min": 0,
+   "max": 4095,
+   "homing_offset": 1
+  }
+ },
+ "joint_map": {
+  "sign": {
+   "shoulder_pan": 1,
+   "shoulder_lift": 1,
+   "elbow_flex": 1,
+   "wrist_flex": 1,
+   "wrist_roll": 1
+  },
+  "offset": {
+   "shoulder_pan": 0.0,
+   "shoulder_lift": 0.0,
+   "elbow_flex": 0.0,
+   "wrist_flex": 0.0,
+   "wrist_roll": 0.0
+  },
+  "mid": {
+   "shoulder_pan": 1993.5,
+   "shoulder_lift": 2050.5,
+   "elbow_flex": 1960.5,
+   "wrist_flex": 2029.5,
+   "wrist_roll": 2047.5
+  }
+ },
+ "gains_written": {
+  "shoulder_pan": {
+   "P_Coefficient": 16,
+   "I_Coefficient": 0,
+   "D_Coefficient": 0,
+   "Acceleration": 0
+  },
+  "shoulder_lift": {
+   "P_Coefficient": 64,
+   "I_Coefficient": 0,
+   "D_Coefficient": 0,
+   "Acceleration": 0
+  },
+  "elbow_flex": {
+   "P_Coefficient": 64,
+   "I_Coefficient": 0,
+   "D_Coefficient": 0,
+   "Acceleration": 0
+  },
+  "wrist_flex": {
+   "P_Coefficient": 32,
+   "I_Coefficient": 0,
+   "D_Coefficient": 0,
+   "Acceleration": 0
+  },
+  "wrist_roll": {
+   "P_Coefficient": 64,
+   "I_Coefficient": 0,
+   "D_Coefficient": 0,
+   "Acceleration": 0
+  }
+ },
+ "gains_original": {
+  "shoulder_pan": {
+   "P_Coefficient": 16,
+   "I_Coefficient": 0,
+   "D_Coefficient": 32,
+   "Acceleration": 0,
+   "Operating_Mode": 0,
+   "Max_Torque_Limit": 1000,
+   "Torque_Limit": 1000,
+   "Torque_Enable": 0
+  },
+  "shoulder_lift": {
+   "P_Coefficient": 64,
+   "I_Coefficient": 8,
+   "D_Coefficient": 32,
+   "Acceleration": 0,
+   "Operating_Mode": 0,
+   "Max_Torque_Limit": 1000,
+   "Torque_Limit": 1000,
+   "Torque_Enable": 0
+  },
+  "elbow_flex": {
+   "P_Coefficient": 64,
+   "I_Coefficient": 8,
+   "D_Coefficient": 32,
+   "Acceleration": 0,
+   "Operating_Mode": 0,
+   "Max_Torque_Limit": 1000,
+   "Torque_Limit": 1000,
+   "Torque_Enable": 0
+  },
+  "wrist_flex": {
+   "P_Coefficient": 32,
+   "I_Coefficient": 0,
+   "D_Coefficient": 32,
+   "Acceleration": 0,
+   "Operating_Mode": 0,
+   "Max_Torque_Limit": 1000,
+   "Torque_Limit": 1000,
+   "Torque_Enable": 0
+  },
+  "wrist_roll": {
+   "P_Coefficient": 64,
+   "I_Coefficient": 8,
+   "D_Coefficient": 32,
+   "Acceleration": 0,
+   "Operating_Mode": 0,
+   "Max_Torque_Limit": 1000,
+   "Torque_Limit": 1000,
+   "Torque_Enable": 0
+  }
+ },
+ "poses": {
+  "ready": [
+   -0.00045209021741741663,
+   -0.6357072364798229,
+   0.5188297947426842,
+   0.11687744182291698,
+   0.04868025211750644
+  ],
+  "near_low": [
+   -0.000512070911396728,
+   -1.2093014968392766,
+   1.1581040107070995,
+   0.05119748614237058,
+   0.04868048395745883
+  ],
+  "far_high": [
+   -0.0004036790220082956,
+   -0.06942336771707086,
+   -0.38477256414934624,
+   0.45419584746545627,
+   0.04868009304617337
+  ]
+ },
+ "start": [
+  -0.05907268237519269,
+  -1.9095052783357742,
+  1.6916268134714272,
+  -1.7622071612443846,
+  0.026851219261451224
+ ],
+ "watchdog": {
+  "error": 0.35,
+  "seconds": 0.4,
+  "temp": 65.0,
+  "volt": 10.0,
+  "read_failures": 5
+ },
+ "created": "2026-11-08_212508",
+ "segments": [
+  {
+   "name": "start",
+   "kind": "hold"
+  },
+  {
+   "kind": "move",
+   "name": "to_ready",
+   "pose": "ready"
+  },
+  {
+   "kind": "hold",
+   "name": "settle_ready",
+   "pose": "ready"
+  },
+  {
+   "name": "ready/shoulder_pan/steps",
+   "kind": "steps",
+   "pose": "ready",
+   "joint": "shoulder_pan"
+  },
+  {
+   "name": "ready/shoulder_pan/reversal",
+   "kind": "reversal",
+   "pose": "ready",
+   "joint": "shoulder_pan"
+  },
+  {
+   "name": "ready/shoulder_pan/chirp",
+   "kind": "chirp",
+   "pose": "ready",
+   "joint": "shoulder_pan"
+  },
+  {
+   "kind": "hold",
+   "name": "ready/shoulder_pan/rest",
+   "pose": "ready"
+  },
+  {
+   "name": "ready/shoulder_lift/steps",
+   "kind": "steps",
+   "pose": "ready",
+   "joint": "shoulder_lift"
+  },
+  {
+   "name": "ready/shoulder_lift/reversal",
+   "kind": "reversal",
+   "pose": "ready",
+   "joint": "shoulder_lift"
+  },
+  {
+   "name": "ready/shoulder_lift/chirp",
+   "kind": "chirp",
+   "pose": "ready",
+   "joint": "shoulder_lift"
+  },
+  {
+   "kind": "hold",
+   "name": "ready/shoulder_lift/rest",
+   "pose": "ready"
+  },
+  {
+   "name": "ready/elbow_flex/steps",
+   "kind": "steps",
+   "pose": "ready",
+   "joint": "elbow_flex"
+  },
+  {
+   "name": "ready/elbow_flex/reversal",
+   "kind": "reversal",
+   "pose": "ready",
+   "joint": "elbow_flex"
+  },
+  {
+   "name": "ready/elbow_flex/chirp",
+   "kind": "chirp",
+   "pose": "ready",
+   "joint": "elbow_flex"
+  },
+  {
+   "kind": "hold",
+   "name": "ready/elbow_flex/rest",
+   "pose": "ready"
+  },
+  {
+   "name": "ready/wrist_flex/steps",
+   "kind": "steps",
+   "pose": "ready",
+   "joint": "wrist_flex"
+  },
+  {
+   "name": "ready/wrist_flex/reversal",
+   "kind": "reversal",
+   "pose": "ready",
+   "joint": "wrist_flex"
+  },
+  {
+   "name": "ready/wrist_flex/chirp",
+   "kind": "chirp",
+   "pose": "ready",
+   "joint": "wrist_flex"
+  },
+  {
+   "kind": "hold",
+   "name": "ready/wrist_flex/rest",
+   "pose": "ready"
+  },
+  {
+   "name": "ready/wrist_roll/steps",
+   "kind": "steps",
+   "pose": "ready",
+   "joint": "wrist_roll"
+  },
+  {
+   "name": "ready/wrist_roll/reversal",
+   "kind": "reversal",
+   "pose": "ready",
+   "joint": "wrist_roll"
+  },
+  {
+   "name": "ready/wrist_roll/chirp",
+   "kind": "chirp",
+   "pose": "ready",
+   "joint": "wrist_roll"
+  },
+  {
+   "kind": "hold",
+   "name": "ready/wrist_roll/rest",
+   "pose": "ready"
+  },
+  {
+   "kind": "move",
+   "name": "to_near_low",
+   "pose": "near_low"
+  },
+  {
+   "kind": "hold",
+   "name": "settle_near_low",
+   "pose": "near_low"
+  },
+  {
+   "name": "near_low/shoulder_pan/steps",
+   "kind": "steps",
+   "pose": "near_low",
+   "joint": "shoulder_pan"
+  },
+  {
+   "name": "near_low/shoulder_pan/reversal",
+   "kind": "reversal",
+   "pose": "near_low",
+   "joint": "shoulder_pan"
+  },
+  {
+   "name": "near_low/shoulder_pan/chirp",
+   "kind": "chirp",
+   "pose": "near_low",
+   "joint": "shoulder_pan"
+  },
+  {
+   "kind": "hold",
+   "name": "near_low/shoulder_pan/rest",
+   "pose": "near_low"
+  },
+  {
+   "name": "near_low/shoulder_lift/steps",
+   "kind": "steps",
+   "pose": "near_low",
+   "joint": "shoulder_lift"
+  },
+  {
+   "name": "near_low/shoulder_lift/reversal",
+   "kind": "reversal",
+   "pose": "near_low",
+   "joint": "shoulder_lift"
+  },
+  {
+   "name": "near_low/shoulder_lift/chirp",
+   "kind": "chirp",
+   "pose": "near_low",
+   "joint": "shoulder_lift"
+  },
+  {
+   "kind": "hold",
+   "name": "near_low/shoulder_lift/rest",
+   "pose": "near_low"
+  },
+  {
+   "name": "near_low/elbow_flex/steps",
+   "kind": "steps",
+   "pose": "near_low",
+   "joint": "elbow_flex"
+  },
+  {
+   "name": "near_low/elbow_flex/reversal",
+   "kind": "reversal",
+   "pose": "near_low",
+   "joint": "elbow_flex"
+  },
+  {
+   "name": "near_low/elbow_flex/chirp",
+   "kind": "chirp",
+   "pose": "near_low",
+   "joint": "elbow_flex"
+  },
+  {
+   "kind": "hold",
+   "name": "near_low/elbow_flex/rest",
+   "pose": "near_low"
+  },
+  {
+   "name": "near_low/wrist_flex/steps",
+   "kind": "steps",
+   "pose": "near_low",
+   "joint": "wrist_flex"
+  },
+  {
+   "name": "near_low/wrist_flex/reversal",
+   "kind": "reversal",
+   "pose": "near_low",
+   "joint": "wrist_flex"
+  },
+  {
+   "name": "near_low/wrist_flex/chirp",
+   "kind": "chirp",
+   "pose": "near_low",
+   "joint": "wrist_flex"
+  },
+  {
+   "kind": "hold",
+   "name": "near_low/wrist_flex/rest",
+   "pose": "near_low"
+  },
+  {
+   "name": "near_low/wrist_roll/steps",
+   "kind": "steps",
+   "pose": "near_low",
+   "joint": "wrist_roll"
+  },
+  {
+   "name": "near_low/wrist_roll/reversal",
+   "kind": "reversal",
+   "pose": "near_low",
+   "joint": "wrist_roll"
+  },
+  {
+   "name": "near_low/wrist_roll/chirp",
+   "kind": "chirp",
+   "pose": "near_low",
+   "joint": "wrist_roll"
+  },
+  {
+   "kind": "hold",
+   "name": "near_low/wrist_roll/rest",
+   "pose": "near_low"
+  },
+  {
+   "kind": "move",
+   "name": "to_far_high",
+   "pose": "far_high"
+  },
+  {
+   "kind": "hold",
+   "name": "settle_far_high",
+   "pose": "far_high"
+  },
+  {
+   "name": "far_high/shoulder_pan/steps",
+   "kind": "steps",
+   "pose": "far_high",
+   "joint": "shoulder_pan"
+  },
+  {
+   "name": "far_high/shoulder_pan/reversal",
+   "kind": "reversal",
+   "pose": "far_high",
+   "joint": "shoulder_pan"
+  },
+  {
+   "name": "far_high/shoulder_pan/chirp",
+   "kind": "chirp",
+   "pose": "far_high",
+   "joint": "shoulder_pan"
+  },
+  {
+   "kind": "hold",
+   "name": "far_high/shoulder_pan/rest",
+   "pose": "far_high"
+  },
+  {
+   "name": "far_high/shoulder_lift/steps",
+   "kind": "steps",
+   "pose": "far_high",
+   "joint": "shoulder_lift"
+  },
+  {
+   "name": "far_high/shoulder_lift/reversal",
+   "kind": "reversal",
+   "pose": "far_high",
+   "joint": "shoulder_lift"
+  },
+  {
+   "name": "far_high/shoulder_lift/chirp",
+   "kind": "chirp",
+   "pose": "far_high",
+   "joint": "shoulder_lift"
+  },
+  {
+   "kind": "hold",
+   "name": "far_high/shoulder_lift/rest",
+   "pose": "far_high"
+  },
+  {
+   "name": "far_high/elbow_flex/steps",
+   "kind": "steps",
+   "pose": "far_high",
+   "joint": "elbow_flex"
+  },
+  {
+   "name": "far_high/elbow_flex/reversal",
+   "kind": "reversal",
+   "pose": "far_high",
+   "joint": "elbow_flex"
+  },
+  {
+   "name": "far_high/elbow_flex/chirp",
+   "kind": "chirp",
+   "pose": "far_high",
+   "joint": "elbow_flex"
+  },
+  {
+   "kind": "hold",
+   "name": "far_high/elbow_flex/rest",
+   "pose": "far_high"
+  },
+  {
+   "name": "far_high/wrist_flex/steps",
+   "kind": "steps",
+   "pose": "far_high",
+   "joint": "wrist_flex"
+  },
+  {
+   "name": "far_high/wrist_flex/reversal",
+   "kind": "reversal",
+   "pose": "far_high",
+   "joint": "wrist_flex"
+  },
+  {
+   "name": "far_high/wrist_flex/chirp",
+   "kind": "chirp",
+   "pose": "far_high",
+   "joint": "wrist_flex"
+  },
+  {
+   "kind": "hold",
+   "name": "far_high/wrist_flex/rest",
+   "pose": "far_high"
+  },
+  {
+   "name": "far_high/wrist_roll/steps",
+   "kind": "steps",
+   "pose": "far_high",
+   "joint": "wrist_roll"
+  },
+  {
+   "name": "far_high/wrist_roll/reversal",
+   "kind": "reversal",
+   "pose": "far_high",
+   "joint": "wrist_roll"
+  },
+  {
+   "name": "far_high/wrist_roll/chirp",
+   "kind": "chirp",
+   "pose": "far_high",
+   "joint": "wrist_roll"
+  },
+  {
+   "kind": "hold",
+   "name": "far_high/wrist_roll/rest",
+   "pose": "far_high"
+  },
+  {
+   "kind": "move",
+   "name": "to_ready_bounce",
+   "pose": "ready"
+  },
+  {
+   "name": "ready/bounce",
+   "kind": "bounce",
+   "pose": "ready"
+  },
+  {
+   "kind": "hold",
+   "name": "ready/rest",
+   "pose": "ready"
+  },
+  {
+   "kind": "move",
+   "name": "to_start"
+  },
+  {
+   "kind": "hold",
+   "name": "end"
+  }
+ ]
+}
