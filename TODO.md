@@ -172,7 +172,13 @@ Reference: Rhoban [`mjlab_microban`](https://github.com/Rhoban/mjlab_microban) (
       impact speed 3.40 m/s (measured 3.40), 16.5° tilt normal e 0.57, tangential kept 0.60 (measured 0.4 ± 0.1;
       0.6 is the rolling limit, the most loss MuJoCo friction can give). Known gap: slow dribbles (< 1 m/s) bounce
       lower than real (sim 0.58 vs 0.65–0.75). A custom Warp impulse kernel would fix both gaps if they matter.
-- [ ] Task cfg (design agreed 2026-11-08):
+- [x] Task cfg (design agreed 2026-11-08; implemented 2026-11-09 in `sim/src/pingpong_sim/task/`, tasks
+      `PingPong-Bounce-Residual` / `-Direct`, `sim/scripts/{train,play,eval_task}.py`). Differences from the design
+      below: masses drawn once per world (mass changes force a model recompute); no per-world drag (MuJoCo Warp 3.7
+      shares `geom_fluid`); no rolling-friction randomization (the stiff friction already gives the rolling limit);
+      not yet: last bounce's measured apex/restitution as an observation, servo params in the critic, control
+      jitter, curriculum. Zero-action residual (= scripted bouncer) in the env: median 6 bounces, mean 11.3, 9.8 %
+      of episodes last 20 s.
   - **Episode:** 100 Hz policy, 20 s. Arm at ready (+ joint noise); ball held "in hand" 0–1 s, then released
     20–50 cm above the paddle, ±3 cm off centre, small velocity; some episodes start mid-flight. Fixed apex 0.25 m.
   - **Terminations:** ball 10 cm below the hitting plane; > 20 cm sideways; ball touches anything but the blade;
@@ -209,7 +215,9 @@ Reference: Rhoban [`mjlab_microban`](https://github.com/Rhoban/mjlab_microban) (
       more than its views add); keep it as an optional source and re-check with the RL policy.
 - [ ] Tracking speed: rig + filter cost ~57 ms per control tick at 4096 worlds (launch-bound torch, ~40 ms of it the
       filter). CUDA-graph / fuse before long training runs. Deployment: filter 3.8 ms per tick on CPU (1 world).
-- [ ] `uv run train …` at ≥4096 envs → sim2sim check in CPU MuJoCo → ONNX export.
+- [ ] Train: `residual_v1` (2000 it × 4096 worlds, 26k steps/s ≈ 2.8 h; started before the physics
+      randomization was added) → evaluate with `eval_task.py` vs the zero-action baseline → direct policy →
+      sim2sim check in CPU MuJoCo → ONNX export.
 
 No camera rendering in the RL loop: train on the deployment filter fed by simulated detections.
 
