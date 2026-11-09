@@ -55,6 +55,37 @@ class TaskCfg:
                              bouncer=self.bouncer, use_bouncer=self.use_bouncer, trust_vel_std=self.trust_vel_std)
 
 
+def launch_ball(cfg: TaskCfg, target: torch.Tensor, k: int, now: float, device):
+    """Episode start of k balls: held still above the target until a random release time, or already flying
+    (released now). Returns position, velocity (k, 3) and release time (k,)."""
+    u = lambda lo, hi, *shape: lo + (hi - lo) * torch.rand(k, *shape, device=device)  # noqa: E731
+    p = target.expand(k, 3).clone()
+    p[:, :2] += u(-cfg.drop_offset, cfg.drop_offset, 2)
+    p[:, 2] += u(*cfg.drop_height)
+    mid = torch.rand(k, device=device) < cfg.midflight_prob
+    v = torch.stack([u(*r) for r in cfg.midflight_vel], dim=1) * mid[:, None]
+    release = torch.where(mid, torch.full_like(p[:, 0], now), now + u(*cfg.hold_time))
+    return p, v, release
+
+
+def bounce_events(cfg: TaskCfg, target: torch.Tensor, p, v, face, normal, face_vel, prev_vn, released):
+    """True-state bounce detection for one control step: the ball's velocity relative to the paddle along the face
+    normal (`vn`) flips from approach to departure near the face. `target`: ball centre at impact. Returns a dict:
+    p, v, normal, released, vn (pass back as prev_vn next step), bounced, good (sends the ball >= min_apex up),
+    apex (outgoing rise), landing_err (drag-free return to the hitting plane vs target), lateral (contact offset)."""
+    rel = p - face
+    vn = ((v - face_vel) * normal).sum(-1)
+    gap = (rel * normal).sum(-1) - BALL_RADIUS
+    lateral = (rel - (rel * normal).sum(-1, keepdim=True) * normal).norm(dim=-1)
+    bounced = released & (prev_vn < -cfg.bounce_vn) & (vn > cfg.bounce_vn) & (gap < 0.04) & (lateral < 0.09)
+    vz = v[:, 2].clamp_min(0.0)
+    apex = (p[:, 2] - target[2]) + torch.log1p(DRAG_K * vz * vz / G) / (2 * DRAG_K)
+    landing = p[:, :2] + v[:, :2] * (2 * vz / G)[:, None]
+    good = bounced & (apex >= cfg.min_apex)
+    return {"p": p, "v": v, "normal": normal, "released": released, "vn": vn, "bounced": bounced, "good": good,
+            "apex": apex, "landing_err": (landing - target[:2]).norm(dim=-1), "lateral": lateral}
+
+
 def get(env) -> PingPongState:
     """The env's task state, created on first use."""
     st = getattr(env, "_pingpong", None)
@@ -114,16 +145,12 @@ class PingPongState:
         q[:, self.joint_ids] += u(-cfg.joint_noise, cfg.joint_noise, 5)
         self.robot.write_joint_state_to_sim(q, torch.zeros_like(q), env_ids=env_ids)
         # Ball: held above the target, or already flying.
-        p = self.target.expand(k, 3).clone()
-        p[:, :2] += u(-cfg.drop_offset, cfg.drop_offset, 2)
-        p[:, 2] += u(*cfg.drop_height)
-        mid = torch.rand(k, device=dev) < cfg.midflight_prob
-        v = torch.stack([u(*r) for r in cfg.midflight_vel], dim=1) * mid[:, None]
+        p, v, release = launch_ball(cfg, self.target, k, now, dev)
         root = torch.zeros(k, 13, device=dev)
         root[:, :3], root[:, 3], root[:, 7:10] = p, 1.0, v
         self.ball.write_root_state_to_sim(root, env_ids=env_ids)
         self.hold_p[env_ids] = p
-        self.release[env_ids] = torch.where(mid, torch.full_like(p[:, 0], now), now + u(*cfg.hold_time))
+        self.release[env_ids] = release
         # Pipeline and bookkeeping.
         self.rig.reset(env_ids, now)
         self.ctrl.reset(env_ids, now)
@@ -181,22 +208,11 @@ class PingPongState:
         if self.env.common_step_counter == self._summary_at:
             return self.sum
         self._summary_at = self.env.common_step_counter
-        cfg = self.cfg
         p, v = self.ball_true()
         face, normal = self.face_true()
         _, _, face_vel = self.paddle_from_encoders()
-        rel = p - face
-        vn = ((v - face_vel) * normal).sum(-1)
-        gap = (rel * normal).sum(-1) - BALL_RADIUS
-        lateral = (rel - (rel * normal).sum(-1, keepdim=True) * normal).norm(dim=-1)
-        released = self.now >= self.release
-        bounced = released & (self.prev_vn < -cfg.bounce_vn) & (vn > cfg.bounce_vn) & (gap < 0.04) & (lateral < 0.09)
-        self.prev_vn = vn
-        vz = v[:, 2].clamp_min(0.0)
-        apex = (p[:, 2] - self.z_ball) + torch.log1p(DRAG_K * vz * vz / G) / (2 * DRAG_K)
-        landing = p[:, :2] + v[:, :2] * (2 * vz / G)[:, None]  # drag-free return to the plane
-        good = bounced & (apex >= cfg.min_apex)
-        self.bounces += good.long()
-        self.sum = {"p": p, "v": v, "normal": normal, "released": released, "bounced": bounced, "good": good,
-                    "apex": apex, "landing_err": (landing - self.target[:2]).norm(dim=-1), "lateral": lateral}
+        self.sum = bounce_events(self.cfg, self.target, p, v, face, normal, face_vel, self.prev_vn,
+                                 self.now >= self.release)
+        self.prev_vn = self.sum["vn"]
+        self.bounces += self.sum["good"].long()
         return self.sum

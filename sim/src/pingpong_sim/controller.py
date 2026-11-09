@@ -181,7 +181,9 @@ class OnnxPolicy:
         path = Path(path)
         self.spec = json.loads((path / "policy.json").read_text())
         self.ctrl = ctrl
-        self.session = ort.InferenceSession(str(path / "policy.onnx"), providers=["CPUExecutionProvider"])
+        opts = ort.SessionOptions()
+        opts.intra_op_num_threads = opts.inter_op_num_threads = 1  # a small MLP: threads only add latency
+        self.session = ort.InferenceSession(str(path / "policy.onnx"), opts, providers=["CPUExecutionProvider"])
         self.terms = self.spec["observation"]["terms"]
         for t in self.terms:
             if t["name"] != "actions" and t["name"] not in OBS_TERMS:

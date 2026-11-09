@@ -85,49 +85,37 @@ def servo_init(env, env_ids=None) -> None:
     del env, env_ids
 
 
-class ServoActuator(Actuator[ServoActuatorCfg]):
-    def __init__(self, cfg: ServoActuatorCfg, entity: Entity, target_ids: list[int], target_names: list[str]):
-        super().__init__(cfg, entity, target_ids, target_names)
+class ServoDrive:
+    """Servo model + command delay + torque disturbance for `servo.n` worlds, stepped once per physics step, with
+    per-world parameter draws (`request_resample`; fit values when not randomizing) and a firmware resync after the
+    joints were teleported (`mark_pending`), both applied at the next `step`. No mjlab: the training actuator
+    (ServoActuator) and the CPU MuJoCo check (scripts/sim2sim.py) both run one. `joint_names`: fit-file names."""
+
+    def __init__(self, cfg: ServoActuatorCfg, servo: ServoModel, joint_names: list[str], dt: float, device):
         fit = json.loads(Path(cfg.params_path).read_text())
         order = fit["joints"]
-        self._nominal = {}
-        for p in PARAMS:
-            v = fit[p.name]
-            self._nominal[p.name] = [v[order.index(n)] for n in target_names] if p.per_joint else v
-        self.servo: ServoModel | None = None
-
-    @property
-    def command_field(self) -> CommandField:
-        return "position"
-
-    def edit_spec(self, spec: mujoco.MjSpec, target_names: list[str]) -> None:
-        # The gear joints are part of the robot spec (robot.get_spec), so mjlab indexes them as entity joints.
-        for name in target_names:
-            if spec.joint(name + GEAR_SUFFIX) is None:
-                raise ValueError(f"{name}{GEAR_SUFFIX} missing: add servo_model.add_gear_joints to the spec_fn")
-        self._mjs_actuators = motorize(spec, target_names)
-
-    def initialize(self, mj_model: mujoco.MjModel, model, data, device: str) -> None:
-        super().initialize(mj_model, model, data, device)
-        n = data.nworld
-        joint_ids = self.entity.indexing.joint_ids[self.target_ids].tolist()
-        names = [mj_model.joint(i).name for i in joint_ids]
-        self.servo = ServoModel(model, data, mj_model, names, [self.cfg.firmware_p[t] for t in self.target_names],
-                                n, device)
-        self._dt = float(mj_model.opt.timestep)
-        self._device, self._n, J = device, n, len(names)
-        dmax = self.cfg.randomization["delay"][2] if self.cfg.randomize else self._nominal["delay"]
-        self._H = int(math.ceil(dmax / self._dt)) + 2
+        self._nominal = {p.name: [fit[p.name][order.index(j)] for j in joint_names] if p.per_joint else fit[p.name]
+                         for p in PARAMS}
+        self.cfg, self.servo, self._dt, self._device = cfg, servo, dt, device
+        n, J = servo.n, servo.J
+        dmax = cfg.randomization["delay"][2] if cfg.randomize else self._nominal["delay"]
+        self._H = int(math.ceil(dmax / dt)) + 2
         self._goals = torch.zeros(self._H, n, J, device=device)
         self._ptr = 0
         self._lag = torch.zeros(n, dtype=torch.long, device=device)
         self._rows = torch.arange(n, device=device)
         self._dist = torch.zeros(n, J, device=device)
         self._dist_std = torch.zeros(n, 1, device=device)
-        # Model fields are only written from compute(): initialize() runs before mjlab expands them per world.
+        # Model fields are only written from step(): under mjlab, construction precedes the per-world expansion.
         self._resample = torch.ones(n, dtype=torch.bool, device=device)
         self._pending = torch.ones(n, dtype=torch.bool, device=device)
-        self._checked = False
+
+    def request_resample(self, env_ids: torch.Tensor) -> None:
+        self._resample[env_ids] = True
+
+    def mark_pending(self, env_ids: torch.Tensor) -> None:
+        """The joints of env_ids were just set: sync the firmware state and the delay line at the next step."""
+        self._pending[env_ids] = True
 
     def _sample(self, env_ids: torch.Tensor) -> None:
         """Draw servo parameters (fit values when not randomizing) for env_ids."""
@@ -162,41 +150,78 @@ class ServoActuator(Actuator[ServoActuatorCfg]):
             self._dist_std[env_ids] = 0.0
         self._dist[env_ids] = 0.0
 
-    def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
-        super().reset(env_ids)
-        if self.servo is None:
-            return
-        ids = self._rows[env_ids] if isinstance(env_ids, slice) else (self._rows if env_ids is None else env_ids)
-        if self.cfg.randomize:
-            self._resample[ids] = True
-        # The reset joint state is written after this call: sync the firmware state at the next compute().
-        self._pending[ids] = True
-
-    def compute(self, cmd: ActuatorCmd) -> torch.Tensor:
+    def step(self, goal: torch.Tensor) -> torch.Tensor:
+        """Motor torques (n, J) for this physics step, given the commanded goals (n, J; encoder angles)."""
         servo = self.servo
-        if not self._checked:
-            if self._n > 1 and any(getattr(servo.model, f).stride(0) == 0 for f in ServoModel.EXPANDED_FIELDS):
-                raise RuntimeError("ServoActuator needs per-world model fields: add the servo_init startup event "
-                                   "(pingpong_sim.servo_actuator.servo_init) or call "
-                                   "sim.expand_model_fields(ServoModel.EXPANDED_FIELDS)")
-            self._checked = True
         if self._resample.any():
             self._sample(self._resample.nonzero(as_tuple=True)[0])
             self._resample[:] = False
         if self._pending.any():
             ids = self._pending.nonzero(as_tuple=True)[0]
             servo.sync(servo.encoder()[ids], ids)
-            self._goals[:, ids] = cmd.position_target[ids]
+            self._goals[:, ids] = goal[ids]
             self._pending[ids] = False
         self._ptr = (self._ptr + 1) % self._H
-        self._goals[self._ptr] = cmd.position_target
-        goal = self._goals[(self._ptr - self._lag) % self._H, self._rows]
-        tau = servo.apply(goal, self._dt)
+        self._goals[self._ptr] = goal
+        delayed = self._goals[(self._ptr - self._lag) % self._H, self._rows]
+        tau = servo.apply(delayed, self._dt)
         if self.cfg.randomize:
             a = self._dt / self.cfg.disturbance_tau
             self._dist = (1 - a) * self._dist + self._dist_std * math.sqrt(2 * a) * torch.randn_like(self._dist)
             tau = tau + self._dist
         return tau
+
+
+class ServoActuator(Actuator[ServoActuatorCfg]):
+    def __init__(self, cfg: ServoActuatorCfg, entity: Entity, target_ids: list[int], target_names: list[str]):
+        super().__init__(cfg, entity, target_ids, target_names)
+        self.drive: ServoDrive | None = None
+
+    @property
+    def servo(self) -> ServoModel | None:
+        return None if self.drive is None else self.drive.servo
+
+    @property
+    def command_field(self) -> CommandField:
+        return "position"
+
+    def edit_spec(self, spec: mujoco.MjSpec, target_names: list[str]) -> None:
+        # The gear joints are part of the robot spec (robot.get_spec), so mjlab indexes them as entity joints.
+        for name in target_names:
+            if spec.joint(name + GEAR_SUFFIX) is None:
+                raise ValueError(f"{name}{GEAR_SUFFIX} missing: add servo_model.add_gear_joints to the spec_fn")
+        self._mjs_actuators = motorize(spec, target_names)
+
+    def initialize(self, mj_model: mujoco.MjModel, model, data, device: str) -> None:
+        super().initialize(mj_model, model, data, device)
+        n = data.nworld
+        joint_ids = self.entity.indexing.joint_ids[self.target_ids].tolist()
+        names = [mj_model.joint(i).name for i in joint_ids]
+        servo = ServoModel(model, data, mj_model, names, [self.cfg.firmware_p[t] for t in self.target_names], n,
+                           device)
+        self.drive = ServoDrive(self.cfg, servo, list(self.target_names), float(mj_model.opt.timestep), device)
+        self._rows = torch.arange(n, device=device)
+        self._checked = False
+
+    def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
+        super().reset(env_ids)
+        if self.drive is None:
+            return
+        ids = self._rows[env_ids] if isinstance(env_ids, slice) else (self._rows if env_ids is None else env_ids)
+        if self.cfg.randomize:
+            self.drive.request_resample(ids)
+        # The reset joint state is written after this call: sync the firmware state at the next compute().
+        self.drive.mark_pending(ids)
+
+    def compute(self, cmd: ActuatorCmd) -> torch.Tensor:
+        if not self._checked:
+            servo = self.drive.servo
+            if servo.n > 1 and any(getattr(servo.model, f).stride(0) == 0 for f in ServoModel.EXPANDED_FIELDS):
+                raise RuntimeError("ServoActuator needs per-world model fields: add the servo_init startup event "
+                                   "(pingpong_sim.servo_actuator.servo_init) or call "
+                                   "sim.expand_model_fields(ServoModel.EXPANDED_FIELDS)")
+            self._checked = True
+        return self.drive.step(cmd.position_target)
 
 
 def _servo_actuator(entity: Entity) -> ServoActuator:
