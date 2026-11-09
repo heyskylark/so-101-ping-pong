@@ -185,28 +185,35 @@ def launch_state(env) -> torch.Tensor:
 # -- rewards -------------------------------------------------------------------------------------------------------
 
 
-def bounce(env) -> torch.Tensor:
-    """1 per bounce that sends the ball at least `min_apex` up."""
-    return get(env).summary()["good"].float()
-
-
-def bounce_apex(env, std: float) -> torch.Tensor:
-    """At each bounce: how close the outgoing apex (from the outgoing velocity) is to the target height."""
+def _apex_weight(env, std: float) -> torch.Tensor:
+    """Per good bounce: exp(-((apex - target) / std)^2), else 0. Scales the per-bounce rewards so that more, lower
+    bounces don't pay: unweighted, the direct policy learned to dribble ~5 bounces/s just above `min_apex`."""
     st = get(env)
     s = st.summary()
     return s["good"].float() * torch.exp(-(((s["apex"] - st.cfg.apex) / std) ** 2))
 
 
-def bounce_landing(env, std: float) -> torch.Tensor:
-    """At each bounce: how close the predicted next landing point is to the target."""
-    s = get(env).summary()
-    return s["good"].float() * torch.exp(-((s["landing_err"] / std) ** 2))
+def bounce(env, apex_std: float) -> torch.Tensor:
+    """Per bounce that sends the ball at least `min_apex` up, weighted by how close its apex is to the target."""
+    return _apex_weight(env, apex_std)
 
 
-def bounce_centered(env, std: float) -> torch.Tensor:
-    """At each bounce: how close the contact is to the blade centre (where the restitution was measured)."""
+def bounce_apex(env, std: float) -> torch.Tensor:
+    """At each bounce: how close the outgoing apex (from the outgoing velocity) is to the target height (sharper)."""
+    return _apex_weight(env, std)
+
+
+def bounce_landing(env, std: float, apex_std: float) -> torch.Tensor:
+    """At each bounce: how close the predicted next landing point is to the target, weighted by the apex."""
     s = get(env).summary()
-    return s["good"].float() * torch.exp(-((s["lateral"] / std) ** 2))
+    return _apex_weight(env, apex_std) * torch.exp(-((s["landing_err"] / std) ** 2))
+
+
+def bounce_centered(env, std: float, apex_std: float) -> torch.Tensor:
+    """At each bounce: how close the contact is to the blade centre (where the restitution was measured), weighted
+    by the apex."""
+    s = get(env).summary()
+    return _apex_weight(env, apex_std) * torch.exp(-((s["lateral"] / std) ** 2))
 
 
 def action_l2(env) -> torch.Tensor:

@@ -82,11 +82,13 @@ def make_env_cfg(residual: bool = True, play: bool = False) -> ManagerBasedRlEnv
                                   params={"dv": 0.1}),
     }
 
+    # Per-bounce rewards are weighted by the apex (std 0.1 m around the 0.25 m target): a 10 cm dribble earns ~0.1
+    # of a target bounce, so ~3.5 dribbles/s pay ~1/6 of ~2.2 target bounces/s.
     rewards = {
-        "bounce": RewardTermCfg(func=mdp.bounce, weight=1.0),
+        "bounce": RewardTermCfg(func=mdp.bounce, weight=1.0, params={"apex_std": 0.1}),
         "bounce_apex": RewardTermCfg(func=mdp.bounce_apex, weight=1.0, params={"std": 0.05}),
-        "bounce_landing": RewardTermCfg(func=mdp.bounce_landing, weight=1.0, params={"std": 0.05}),
-        "bounce_centered": RewardTermCfg(func=mdp.bounce_centered, weight=0.5, params={"std": 0.04}),
+        "bounce_landing": RewardTermCfg(func=mdp.bounce_landing, weight=1.0, params={"std": 0.05, "apex_std": 0.1}),
+        "bounce_centered": RewardTermCfg(func=mdp.bounce_centered, weight=0.5, params={"std": 0.04, "apex_std": 0.1}),
         "action_rate": RewardTermCfg(func=mj_mdp.action_rate_l2, weight=-0.01),
         "action": RewardTermCfg(func=mdp.action_l2, weight=-0.005 if residual else 0.0),
         "joint_vel": RewardTermCfg(func=mdp.joint_vel_l2, weight=-1e-4),
