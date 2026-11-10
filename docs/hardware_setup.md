@@ -75,10 +75,12 @@ latency.
 | Target | Where | Used for | Accuracy needed |
 |---|---|---|---|
 | **AprilTag**, tag36h11 ID 0, ~70 mm black square | Glued flat on the paddle's **back face** (base side, the face that never hits); roughly centred, exact placement doesn't matter | Overhead camera position and angle in the robot frame; each camera's timestamp offset; joint zero offsets as a by-product | Overhead ≤ 3 mm / ≤ 0.3°; timestamps ≤ ±2 ms |
-| **ChArUco board**, ~A4 / Letter, e.g. 7×5 squares of 30 mm | Printed, glued to a flat rigid board | Lens model of each camera (wave it in front of the camera); then standing upright on the table in front of the arm as the fixed target for the wrist camera mount | Wrist mount ≤ 1 mm / ≤ 0.5° |
+| **ChArUco board**, 5×7 squares of 30 mm (DICT_5X5_100) | Printed, glued flat to a rigid board (foam board, stiff cardboard) | Lens model of each camera (wave it in front of the camera); then standing upright on the table in front of the arm as the fixed target for the wrist camera mount | Wrist mount ≤ 1 mm / ≤ 0.5° |
 
-Print both at 100 % scale on matte paper and measure the printed tag's black square and the board's square size with
-calipers; those numbers go into the calibration.
+Both print on US Letter at exact scale: `uv run scripts/make_calib_targets.py`, then
+`lp -o print-scaling=none -o media=Letter build/calib_targets.pdf` (page 1: tag ID 0 plus a spare, page 2: the
+board, each with a 100 mm ruler). Measure the ruler, the tag's black square and a board square with calipers;
+`calibrate.py targets` records them and the calibration uses those numbers.
 
 Why the tag goes on the paddle rather than on the table: the arm moves it through ~20 poses where the encoders and
 the model already say where the paddle is, so the overhead camera's pose comes out directly in the robot frame
@@ -87,19 +89,51 @@ position measured relative to the arm. The wrist camera can't see the paddle fac
 looks across the blade edge-on), hence the fixed board for it. To show the back-face tag to the overhead camera,
 the arm rolls the paddle over (wrist_roll reaches ±157–163°).
 
-Calibration steps (TODO.md §3; the scripts for these are not written yet):
+## Bring-up and calibration
 
-1. **Lens** (each camera): ~30 views of the ChArUco board across the whole picture, corners included → fisheye
-   lens model.
-2. **Overhead camera pose:** the arm shows the paddle tag to the overhead camera in ~20 poses → camera pose in the
-   robot frame (plus the tag's spot on the blade and per-joint zero offsets).
-3. **Wrist camera mount:** board standing on the table; the arm moves so the wrist camera sees it from ~20 poses →
-   camera pose on the holder (CAD value as the starting guess).
-4. **Timestamp offsets:** the arm waves the paddle sinusoidally with the tag in view of each camera; matching the
-   tag track against the encoder track gives each camera's capture-time offset (to ~1 ms) and the rolling-shutter
-   readout time.
-5. **Checks:** drop a ball and fit its flight; the acceleration must come out as straight down at 9.81 m/s² in the
-   robot frame (a 1° frame tilt is as bad as a 1° paddle tilt). A ball resting on the level paddle must not roll.
+All from `sim/`. Each step saves into `measurements/calibration/` (`rig.json`, `camera_<name>.json`, `arm.json`, raw
+data in `raw/`), and later steps refuse to run until the ones they need are done. Every arm step plans its moves,
+checks them in the sim (joint and servo limits, table clearance, blade vs arm) and asks for "go"; Ctrl-C returns
+the arm to where it started, a second Ctrl-C cuts torque.
+
+| # | Command | What you do | Result |
+|---|---|---|---|
+| 0 | `uv run scripts/calibrate.py selftest` | nothing (no hardware) | the solvers recover known answers from synthetic data |
+| 1 | `uv run scripts/calibrate.py targets --ruler 100.0 --tag 70.1 --square 30.0` | type your caliper readings | sizes used by all fits |
+| 2 | `uv run scripts/cameras.py list`, then `cameras.py assign overhead <device>` and `assign wrist <device>` | plug in one camera at a time to tell them apart (use the `/dev/v4l/by-path/` names) | `rig.json` |
+| 3 | `uv run scripts/cameras.py preview overhead` (and `wrist`) | check orientation (camera_setup.md), set exposure with +/- (≤ 2 ms, picture still bright), toss the ball: it should be found in most frames | exposure saved; ball colour via `cameras.py color` |
+| 4 | `uv run scripts/calibrate.py intrinsics overhead` (and `wrist`) | wave the board: still for a moment at each spot, all over the picture including the corners, tilted up to ~45°, near and far | lens model, RMS ≲ 0.5 px |
+| 5 | `uv run scripts/calibrate.py overhead --port /dev/ttyACM0` | tag on the paddle's back face; the arm rolls the paddle over and shows it to the overhead camera in ~20 poses | camera pose, joint offsets, tag placement |
+| 6 | `uv run scripts/calibrate.py wrist --port /dev/ttyACM0` | board standing upright ~0.3 m beyond the paddle tip, facing the arm, centre at paddle height; the arm moves around ready | wrist camera mount |
+| 7 | `uv run scripts/calibrate.py timing overhead --port ...`, then `timing wrist` (board untouched since step 6) | the arm waves the paddle for 12 s | each camera's timestamp offset and rolling-shutter readout |
+| 8 | `uv run scripts/calibrate.py gravity --port /dev/ttyACM0` | drop the ball onto the paddle from 20–40 cm, catch it, repeat for 40 s | gravity tilt (< 0.5°) and magnitude (within 2 %): checks everything above |
+| 9 | `uv run scripts/run_robot.py --port /dev/ttyACM0 --scripted --seconds 60` | hold the ball above the paddle and let go | the scripted bouncer alone: a first test of the whole loop |
+| 10 | `uv run scripts/run_robot.py --port /dev/ttyACM0 --policy policies/residual_v1` | same | the trained policy; logs in `measurements/runs/<time>/` |
+
+Why each step exists:
+
+- **Lens:** fisheye model (barrel distortion beyond −17 % at the edges), fitted from ChArUco corners.
+- **Overhead pose:** the tag's corners at ~20 arm poses, with the encoder angles there, fit the camera pose in the
+  robot frame, where the tag sits on the blade, and joint zero offsets (lift, elbow, wrist_flex, wrist_roll). The
+  tag is assumed flat on the blade: that is what makes the wrist_roll offset (the paddle's sideways tilt)
+  measurable.
+- **Wrist mount:** the board's corners seen from ~20 poses fit the camera's mount on the holder (CAD as the start)
+  and where the board stands.
+- **Timing:** the target's track against the encoders gives the capture time of each frame relative to the driver's
+  buffer timestamp (to < 1 ms in the selftest) and the rolling-shutter readout across rows.
+- **Gravity:** ball flights fitted with drag; a tilted result means the robot frame the cameras report in is tilted,
+  which shows up as a paddle-tilt error (1° ≈ 3 cm of drift per bounce).
+
+## Running
+
+`scripts/run_robot.py` loads the calibration, connects the arm (gain profile, torque on), starts both cameras and
+moves to the ready pose, then runs at 100 Hz: encoders and ball detections go through the same controller code as
+training (filter, impact prediction, scripted bouncer, observation layout from `policy.json`) into the ONNX policy.
+The arm holds ready until the ball is tracked above the paddle (held or dropped), plays until the ball is lost, low
+or more than 25 cm away, then returns to ready and waits for the next ball. Goals are limited to 0.15 rad per tick
+and kept off the table (blade ≥ 12 cm up) and below 45° of tilt; the watchdog stops on a stuck joint, heat or low
+supply. `--sim` runs the same loop against the simulated arm, ball and cameras: work per tick is ~2.5 ms median,
+~5 ms p99 on this PC, inside the 10 ms tick with the bus I/O.
 
 ## Safety
 
@@ -113,9 +147,10 @@ Calibration steps (TODO.md §3; the scripts for these are not written yet):
 
 | Piece | State |
 |---|---|
-| Servo bus, joint map, gain profile (`sim/src/pingpong_sim/servo_bus.py`, `record_servos.py`) | Done, used for the servo recordings |
-| Ball filter, scripted bouncer, controller (`ball_filter.py`, `bouncer.py`, `controller.py`) | Done, shared with the sim; runs the policy on CPU MuJoCo (`sim/scripts/sim2sim.py`) |
-| Trained policy, ONNX + spec (`sim/policies/<name>/`) | Done (`residual_v1`) |
-| Camera capture + ball detection (MJPEG, undistort, blob → pixel centre and diameter, timestamps) | To do |
-| 100 Hz run loop on the real arm (encoders + detections → controller → servo goals), with limits and a stop key | To do |
-| Calibration scripts (steps 1–5 above) | To do |
+| Servo bus, joint map, arm session (`servo_bus.py`, `real/arm.py`, `record_servos.py`) | Done, used for the servo recordings |
+| Ball filter, scripted bouncer, controller (`ball_filter.py`, `bouncer.py`, `controller.py`) | Done, shared with training; single-world CPU fast paths (`tests/test_fast_paths.py`) |
+| Trained policies, ONNX + spec (`sim/policies/<name>/`) | `residual_v1` (deploy first), `residual_v2`, `direct_v3` |
+| Camera capture + ball detection (`real/cameras.py`, `scripts/cameras.py`) | Written; detection checked on synthetic frames. Needs the cameras: exposure, colour thresholds, buffer timestamps |
+| Camera model and calibration files (`real/camera_model.py`) | Done; exercised by `run_robot.py --sim` |
+| Calibration (`scripts/calibrate.py`, `real/calib_solve.py`) | Written; `selftest` passes. Needs the arm and cameras |
+| 100 Hz loop (`scripts/run_robot.py`) | Runs end to end in `--sim` (bounces continuously, 100 % tracked). Needs the arm |

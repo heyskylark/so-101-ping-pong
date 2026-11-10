@@ -26,6 +26,13 @@ uv run scripts/eval_task.py --checkpoint logs/rsl_rl/pingpong_residual/<run>/mod
 uv run scripts/play.py PingPong-Bounce-Residual --checkpoint-file <model.pt>     # interactive viewer
 uv run scripts/export_policy.py logs/rsl_rl/pingpong_residual/<run>/model_<n>.pt --name <name>  # -> policies/<name>/ (ONNX + spec)
 uv run scripts/sim2sim.py policies/<name> --episodes 96 --workers 16              # exported policy on CPU MuJoCo, deploy code path
+uv run pytest tests                              # fast paths (one CPU world) == batched paths (training)
+# Real rig (docs/hardware_setup.md, "Bring-up and calibration"):
+uv run scripts/make_calib_targets.py            # printable AprilTag + ChArUco (Letter, exact scale) -> build/calib_targets.pdf
+uv run scripts/cameras.py list|assign|preview|color     # camera devices, exposure, ball detection
+uv run scripts/calibrate.py selftest|targets|intrinsics|overhead|wrist|timing|gravity
+uv run scripts/run_robot.py --port /dev/ttyACM0 [--policy policies/residual_v1 | --scripted]   # 100 Hz on the arm
+uv run scripts/run_robot.py --sim --seconds 60  # same loop against the simulated arm, ball and cameras
 ```
 
 ## Layout
@@ -38,12 +45,13 @@ uv run scripts/sim2sim.py policies/<name> --episodes 96 --workers 16            
 | `src/pingpong_sim/servo_bus.py` | STS3215 bus (feetech-servo-sdk) and a MuJoCo stand-in with the same interface; tick ↔ sim-radian map |
 | `src/pingpong_sim/servo_model.py` | STS3215 model (BAM m6 physics) with per-world params, series gear-compliance joints, delays, current limit |
 | `src/pingpong_sim/servo_actuator.py` | `ServoDrive` (fitted servo model + command delay + disturbance + per-reset randomization, no mjlab) and the mjlab actuator around it; `encoder_pos`/`encoder_vel` for observations |
-| `src/pingpong_sim/kinematics.py` | Batched torch FK/IK of the arm (blade face centre + normal, wrist camera pose), exact vs MuJoCo |
+| `src/pingpong_sim/kinematics.py` | Batched torch FK/IK of the arm (blade face centre + normal, wrist camera pose, paddle link), exact vs MuJoCo; float64 numpy chain for one CPU world |
 | `src/pingpong_sim/bouncer.py` | Scripted bouncer: drag-aware impact prediction, aim from measured restitution, single-joint stroke, tracking feedforward |
 | `src/pingpong_sim/ball_filter.py` | Ball EKF shared with deployment: per-camera pixel + apparent-size updates, paddle-aware prediction through bounces, latency and out-of-order handling |
 | `src/pingpong_sim/camera_sim.py` | Simulated overhead + wrist cameras (30 fps rolling shutter, wide lens, latency, noise, blur, occlusion, dropouts, calibration error) producing the filter's detections |
 | `src/pingpong_sim/controller.py` | What the robot runs, shared with training: `BounceController` (encoder arm history → ball filter on camera detections → scripted bouncer; actor observation terms) and `OnnxPolicy` (exported actor + `policy.json` layout → servo goals) |
 | `src/pingpong_sim/task/` | mjlab bounce task: `state.py` (per-env simulated cameras → `BounceController`, launch phase, true-state bounce events), `mdp.py` (events, action term, observations, rewards, terminations, metrics), `env_cfg.py` (env + PPO cfgs); registers `PingPong-Bounce-Residual` / `-Direct` |
+| `src/pingpong_sim/real/` | The real rig: `arm.py` (arm session: gain profile, checked minimum-jerk moves, watchdog, restore on exit), `cameras.py` (UVC capture threads with buffer timestamps, HSV ball detector, `rig.json`), `camera_model.py` (fisheye lens + pose + timing calibration files; pixel detections → filter measurements), `targets.py` (AprilTag / ChArUco detection), `calib_solve.py` (calibration solvers and pose planning), `sim_backend.py` (`CpuWorld` plant on CPU MuJoCo with bus/camera adapters) |
 | `policies/<name>/` | Exported policies: `policy.onnx` (actor + normalizer) and `policy.json` (observation layout, action mapping, joint order, limits, task geometry) |
 | `src/pingpong_sim/sysid.py` | Replays a recording in 2 s windows (n candidates × n windows worlds) and scores the encoder error |
 | `src/pingpong_sim/assets/so101/` | Menagerie `robotstudio_so101`, unmodified (commit 3abca2e, Apache-2.0) |
