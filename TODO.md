@@ -146,7 +146,8 @@ document's `Paddle holder FS` tab) + exported STEP/STL (mm) for both halves.
 - [x] Weighed (1 g scale): cap 25 g, base 35 g (each with its inserts/screws), camera mount + camera module +
       screws/washers 22 g. Wrist payload ≈ 60 g holder + 22 g camera + 151 g paddle = 233 g.
 - [ ] Measure mount stiffness.
-- [ ] AprilTag on the blade back for calibration (§3).
+- [ ] AprilTag on the blade back for calibration (§3): printed (tag36h11 ID 0, 70.1 mm, `make_calib_targets.py`);
+      glue it flat on the base-side face.
 - Quick first test without CAD: clamp the handle in the stock gripper jaws (adds gripper compliance/backlash).
 
 ## 3. mjlab training setup (decided: mjlab)
@@ -274,9 +275,16 @@ Reference: Rhoban [`mjlab_microban`](https://github.com/Rhoban/mjlab_microban) (
       close, but tilts the paddle into failures more and does worse on the bounciest balls (81 % at e 0.61–0.65).
       **Deploy `residual_v1` first**: best numbers, small corrections on top of a stroke that is explainable and
       works on its own (zero action = the scripted bouncer).
-- [ ] Deploy runtime (see `docs/hardware_setup.md`, "Software status"): camera capture + ball detection, the
-      100 Hz loop on the real arm (encoders + detections → `BounceController` → `OnnxPolicy` → servo goals), the
-      calibration scripts (lens, overhead pose, wrist mount, timestamp offsets, gravity check).
+- [x] Deploy runtime, written and run in sim (`docs/hardware_setup.md`, "Bring-up and calibration"):
+      `real/cameras.py` (UVC capture threads, V4L2 buffer timestamps, HSV ball detector), `real/camera_model.py`
+      (fisheye lens + pose + timing files; pixels → filter measurements), `scripts/run_robot.py` (100 Hz: encoders
+      with backward-difference velocities — Present_Velocity reads ~0.8×, lags ~20 ms — and detections →
+      `BounceController` → `OnnxPolicy`; WAIT/PLAY/RECOVER episodes, goal limits, watchdog, logs).
+      `run_robot.py --sim` (CPU MuJoCo arm, ball, cameras emitting real-format pixels): bounces continuously, 100 %
+      tracked. Needed single-world CPU fast paths (filter propagation, impact prediction, kinematic chain; equal to
+      the batched ones, `tests/test_fast_paths.py`): work per tick p50 20 → 2.5 ms, p99 49 → 4.9 ms.
+- [ ] On the hardware: camera exposure/colour thresholds and buffer timestamps (`cameras.py preview`), calibration
+      (below), `run_robot.py --scripted`, then `--policy policies/residual_v1`.
 
 No camera rendering in the RL loop: train on the deployment filter fed by simulated detections.
 
@@ -324,15 +332,19 @@ bias → 20 % survive, ±2 ms → 45 %; overhead extrinsics 1 cm/1° → 23 %, 3
 1 mm/0.5° → 81 %; latency itself, 15–60 ms + readout, with correct timestamps → 85 %). Targets: overhead
 extrinsics ≤ 3 mm / 0.3°, wrist mount ≤ 1 mm / 0.5°, per-camera timestamp offset ≤ ±2 ms. Training randomizes 1.5×.
 
-- [ ] Intrinsics per camera (ChArUco board), fisheye model (barrel < −17 %).
-- [ ] Overhead extrinsics via the arm: AprilTag on the paddle, move through ~20 poses, FK gives tag pose in base
-      frame, solve camera→base. Same data can fit joint zero offsets.
-- [ ] Wrist camera mount (hand-eye): wrist camera views a fixed tag (base plate) from ~20 arm poses, solve the
-      camera-in-holder transform (CAD: `WRIST_CAM_POS/QUAT`).
-- [ ] Timestamp offset per camera: sinusoidal arm motion with the paddle tag in view; cross-correlate the tag track
-      with encoder FK (encoders are read at 100 Hz with host timestamps) → capture-time offset to ~1 ms. Also gives
-      the rolling-shutter readout time (offset vs image row).
-- [ ] Validate with gravity: drop the ball, fit a parabola, acceleration must be (0, 0, −9.81) in base frame.
+Calibration code: `scripts/calibrate.py` + `real/calib_solve.py`; `calibrate.py selftest` recovers known answers from
+synthetic data (overhead 0.86 mm / 0.06°, joint offsets 0.17°, wrist mount 0.21 mm / 0.03°, timing 0.16 ms, gravity
+tilt 0.05°). Targets printed (`make_calib_targets.py`: tag + 5×7 ChArUco of 30 mm on Letter, exact scale).
+
+- [ ] Intrinsics per camera (ChArUco board), fisheye model (barrel < −17 %): `calibrate.py intrinsics <camera>`.
+- [ ] Overhead extrinsics via the arm: `calibrate.py overhead`. AprilTag flat on the paddle's back face, ~20 planned
+      poses, fits camera pose, tag placement in the face plane and joint offsets (lift, elbow, wrist_flex,
+      wrist_roll). The flat-tag constraint is what makes the wrist_roll offset (sideways paddle tilt) observable.
+- [ ] Wrist camera mount: `calibrate.py wrist`; the ChArUco board standing in front, ~24 poses around ready, fits
+      the camera-in-paddle-link transform (CAD start) and the board pose.
+- [ ] Timestamp offset per camera: `calibrate.py timing <camera>`; sinusoidal arm motion, target track vs encoder
+      FK → capture-time offset and rolling-shutter readout.
+- [ ] Validate with gravity: `calibrate.py gravity`; ball flights fitted with drag, tilt must be < 0.5°.
       Frame tilt matters: 1° ≈ the paddle-tilt error in §4 (~3 cm drift/bounce).
 - [ ] Level check: ball resting on the "flat" paddle must not roll.
 
@@ -427,9 +439,10 @@ drifting** parameters (this paddle's restitution, latency, backlash, sag), which
        multi-joint stroke fails (elbow/wrist out of step cancels the face speed); predicting from the measurement
        time is essential. Failures under randomization: feedforward model is the nominal servo's. Optional: run
        it on the real arm (ball state from the cameras + ball filter) as a baseline/first demo.
-6. [ ] RL in mjlab.
-7. [ ] Cameras (overhead + wrist UVC, §3) + calibration (extrinsics, wrist mount, timestamp offsets) + latency.
-8. [ ] Deploy.
+6. [x] RL in mjlab (`residual_v1` deploy candidate; sim2sim, ONNX export).
+7. [ ] Cameras (overhead + wrist UVC, §3) + calibration (extrinsics, wrist mount, timestamp offsets) + latency:
+       code done and self-tested, needs the hardware.
+8. [ ] Deploy: `run_robot.py` done in sim, needs the hardware.
 
 ## Decisions
 
