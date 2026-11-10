@@ -203,6 +203,9 @@ def main() -> int:
     ap.add_argument("--cameras", nargs="+", default=["overhead", "wrist"])
     ap.add_argument("--seconds", type=float, default=120.0)
     ap.add_argument("--out", help="log directory (default measurements/runs/<time>, sim: sim/build/runs/<time>)")
+    ap.add_argument("--ball-gravity", type=float,
+                    help="EXPERIMENT: gravity [m/s^2] the ball filter and the bouncer's predictor assume (default "
+                         "9.81). Real runs predicted impacts ~28 ms early, as if the ball fell at ~8.7 m/s^2")
     args = ap.parse_args()
     torch.set_num_threads(1)
     policy_dir = None if args.scripted else Path(args.policy)
@@ -224,6 +227,12 @@ def main() -> int:
         bus = open_bus(args.port)
         cams = BallCameras(RigConfig.load(), args.cameras)
         offsets = ArmCalib.load().joint_offsets
+    if args.ball_gravity is not None:
+        import pingpong_sim.ball_filter as ball_filter_mod
+        import pingpong_sim.bouncer as bouncer_mod
+
+        ball_filter_mod.G = bouncer_mod.G = args.ball_gravity
+        warnings.append(f"EXPERIMENT: ball filter and bouncer assume gravity {args.ball_gravity:.2f} m/s^2")
     for w in warnings:
         print("warning:", w)
 

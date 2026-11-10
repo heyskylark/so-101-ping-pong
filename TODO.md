@@ -461,6 +461,21 @@ drifting** parameters (this paddle's restitution, latency, backlash, sag), which
        intent +1.5° median (tip-up) with 5.2° spread (the elbow-only stroke tilts the face at 50–170°/s), and the
        face moves toward the base at impact (median −0.07 m/s, rubber grips): both push ~5 cm/bounce backwards.
        Next: `residual_v1` on the real arm (sim check: 43 bounces in 20 s).
+       `residual_v1` real run (`2026-11-09_221640`): same, 1–2 bounces. Diagnosis (both runs; replaying the logs
+       through `BounceController` reproduces the logged estimate exactly):
+       - Bounces die out: apexes fall bounce after bounce, the ball ends up dribbling and rolls off (the drift
+         direction is just which way it rolls). The paddle's speed peaks 24–47 ms *before* the ball arrives
+         (from the raw detections), so it is decelerating at contact (0.3–0.55 m/s vs 0.94–1.0 planned).
+       - The arm follows the plan (tracking model vs real face speed: 0–10 ms, ×1.0–1.1); the bouncer's predicted
+         impact is early: −28 ms median on real logs, +3 ms on a sim run through the same code.
+       - The filter has the ball falling faster than the cameras see it; replaying with filter gravity 8.7 m/s²
+         puts the predicted impacts on time (9.81: −28 ms, 9.0: −11, 8.3: +12). Ball flights measured per camera
+         fall at −8.0..−8.7 m/s² (sim: −9.77 with the same analysis).
+       - Ruled out: restitution (0.59 measured on real passive bounces), camera clock rate (buffer stamps vs
+         arrival 1.0000), range-from-size scaling (slope 1.00–1.04 vs triangulation), filter noise settings, the
+         filter's ~40 % gate rejections (sim shows the same).
+       - Open: why the real ball appears to fall at ~8.7 m/s². Test: `run_robot.py --ball-gravity 8.7`
+         (experiment flag; logged in meta.json warnings).
 
 ## Decisions
 
