@@ -349,9 +349,13 @@ tilt 0.05°). Targets printed (`make_calib_targets.py`: tag + 5×7 ChArUco of 30
       (arm pose error flipped over, ~1–2°). Hand-held and propped boards failed (drift). Target 1 mm / 0.5° not met.
 - [x] Timestamp offset per camera: overhead stamp −4.6 ms + 33.1 ms × row, wrist +4.8 ms + 24.8 ms × row (~±1 ms;
       residual 9–14 px is backlash at the wave's reversals).
-- [ ] Validate with gravity: `calibrate.py gravity`; ball flights fitted with drag, tilt must be < 0.5°. Two-camera
-      run: cameras agree (overhead point ~1 mm off the wrist ray on average, 11 mm RMS) but the fitted gravity tilts
-      8.6° sideways / 6.5° about the lift axis: arcs likely include hand release / catch.
+- [ ] Validate the frame tilt: phone level on the table next to the base (front-back, side-side); the robot frame is
+      the base plane, so the table's tilt is gravity's tilt in it. Tossed-ball gravity isn't reliable enough: the
+      two-camera run tilted 8.6° sideways / 6.5° about the lift axis while the cameras agree (overhead point ~1 mm
+      off the wrist ray on average, 11 mm RMS). Not hand release/catch (trimming arc ends makes it worse) and not
+      the timing calibration (the older recording gives +1.6° sideways under today's calibration); the new tosses
+      ran sideways (7 of 11 toward +y) and the overhead range-from-size drifts ~±7 % across the picture (vs the
+      wrist ray, 65 overlapping detections). Size scales from it kept: overhead 1.074, wrist 0.920 (±0.02).
       Frame tilt matters: 1° ≈ the paddle-tilt error in §4 (~3 cm drift/bounce).
 - [ ] Level check: ball resting on the "flat" paddle must not roll.
 
