@@ -64,7 +64,8 @@ def coupling(w: sysid.Windows, sim: np.ndarray | None) -> dict[str, list[float]]
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--run", type=Path, default=DEFAULT_RUN)
+    ap.add_argument("--run", type=Path, nargs="+", default=[DEFAULT_RUN],
+                    help="recordings (record_servos.py record / strokes); windows of all of them are fitted together")
     ap.add_argument("--pop", type=int, default=24)
     ap.add_argument("--gens", type=int, default=150)
     ap.add_argument("--sigma", type=float, default=0.2)
@@ -75,9 +76,9 @@ def main() -> None:
     out = REPO / "measurements" / "servo" / f"fit_{dt.datetime.now().strftime('%Y-%m-%d_%H%M%S')}"
     out.mkdir(parents=True)
 
-    w = sysid.load_windows(args.run)
+    w = sysid.load_windows_many(args.run)
     fit, val = w.split == "fit", w.split == "val"
-    print(f"{args.run.name}: {fit.sum()} fit windows, {val.sum()} held-out windows, 2 s each")
+    print(f"{', '.join(r.name for r in args.run)}: {fit.sum()} fit windows, {val.sum()} held-out windows, 2 s each")
     base = bam_baseline(json.loads(SERVO_PARAMS.read_text()), J)
 
     # Reference points: the pre-fit model, and "the arm does exactly what it is told" (goal as the prediction).
@@ -146,9 +147,10 @@ def main() -> None:
         print(f"  {n:28s} {b * f:12.4g}  {values[n] * f:12.4g} {unit:3s} {100 * sens[n]:7.1f}")
 
     json_out = sysid.params_to_json(best, json.loads(SERVO_PARAMS.read_text()))
-    json_out.update(q_offset=0.0, fitted_from=str(args.run.relative_to(REPO)), fit_report=str(out.relative_to(REPO)))
+    runs = [str(r.resolve().relative_to(REPO)) if r.resolve().is_relative_to(REPO) else str(r) for r in args.run]
+    json_out.update(q_offset=0.0, fitted_from=runs, fit_report=str(out.relative_to(REPO)))
     OUT_PARAMS.write_text(json.dumps(json_out, indent=4) + "\n")
-    report = dict(run=str(args.run.relative_to(REPO)), windows=dict(fit=int(fit.sum()), val=int(val.sum())),
+    report = dict(run=runs, windows=dict(fit=int(fit.sum()), val=int(val.sum())),
                   coupling_p2p_deg=coup, band_rms_deg={k: v.round(4).tolist() for k, v in band.items()},
                   band_weight=args.band_weight,
                   rms_deg={k: {s: v.round(4).tolist() for s, v in d_.items()} for k, d_ in rms.items()},

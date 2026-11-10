@@ -67,6 +67,8 @@ def load_windows(run_dir: Path) -> Windows:
         if phase[k] != 0:
             return ""
         s = segs[seg[k]]
+        if s.get("kind") == "strokes":  # record_servos.py strokes: every 4th series held out
+            return "val" if seg[k] % 4 == 3 else "fit"
         if s.get("kind") == "bounce" or s.get("pose") == "far_high":
             return "val"
         return "fit" if s.get("pose") in FIT_POSES else ""
@@ -100,6 +102,29 @@ def load_windows(run_dir: Path) -> Windows:
     out["vin"] = [v[:T] for v in out["vin"]]
     assert max(r.max() for r in out["read_step"]) < T, "read beyond the shortest window"
     return Windows(**{k: (np.stack(v) if k != "names" else v) for k, v in out.items()})
+
+
+def load_windows_many(run_dirs: list[Path]) -> Windows:
+    """Windows of several recordings; shorter ones are padded (goal and supply held) to the longest's sim steps,
+    after their last read, so the padding never reaches the cost."""
+    ws = [load_windows(d) for d in run_dirs]
+    hist = int(round(MAX_DELAY / DT))
+    T = max(w.steps for w in ws)
+
+    def pad(x, n):
+        return np.concatenate([x, np.repeat(x[:, -1:], n - x.shape[1], axis=1)], axis=1) if x.shape[1] < n else x
+
+    out = {}
+    for k in Windows.__dataclass_fields__:
+        if k == "names":
+            out[k] = [n for w in ws for n in w.names]
+        elif k == "goal":
+            out[k] = np.concatenate([pad(w.goal, T + hist) for w in ws])
+        elif k == "vin":
+            out[k] = np.concatenate([pad(w.vin, T) for w in ws])
+        else:
+            out[k] = np.concatenate([getattr(w, k) for w in ws])
+    return Windows(**out)
 
 
 def make_spec() -> mujoco.MjSpec:
