@@ -1,0 +1,256 @@
+{
+ "backend": "real",
+ "port": "/dev/ttyACM0",
+ "status": "complete",
+ "rate_hz": 100.0,
+ "joints": [
+  "shoulder_pan",
+  "shoulder_lift",
+  "elbow_flex",
+  "wrist_flex",
+  "wrist_roll"
+ ],
+ "angles": "true (joint offsets added)",
+ "joint_offsets": [
+  0.0,
+  0.17019711132925627,
+  -0.13375039296567567,
+  -0.003482667122420394,
+  0.030420187329384306
+ ],
+ "segments": [
+  {
+   "name": "strokes/apex0.18/+0.00,+0.00",
+   "kind": "strokes",
+   "pose": "ready",
+   "apex": 0.18,
+   "dx": 0.0,
+   "dy": 0.0,
+   "start": 0,
+   "n": 317
+  },
+  {
+   "name": "strokes/apex0.18/+0.04,+0.00",
+   "kind": "strokes",
+   "pose": "ready",
+   "apex": 0.18,
+   "dx": 0.04,
+   "dy": 0.0,
+   "start": 317,
+   "n": 317
+  },
+  {
+   "name": "strokes/apex0.18/-0.04,+0.00",
+   "kind": "strokes",
+   "pose": "ready",
+   "apex": 0.18,
+   "dx": -0.04,
+   "dy": 0.0,
+   "start": 634,
+   "n": 317
+  },
+  {
+   "name": "strokes/apex0.18/+0.00,+0.04",
+   "kind": "strokes",
+   "pose": "ready",
+   "apex": 0.18,
+   "dx": 0.0,
+   "dy": 0.04,
+   "start": 951,
+   "n": 317
+  },
+  {
+   "name": "strokes/apex0.18/+0.00,-0.04",
+   "kind": "strokes",
+   "pose": "ready",
+   "apex": 0.18,
+   "dx": 0.0,
+   "dy": -0.04,
+   "start": 1268,
+   "n": 317
+  },
+  {
+   "name": "strokes/apex0.15/+0.00,+0.00",
+   "kind": "strokes",
+   "pose": "ready",
+   "apex": 0.15,
+   "dx": 0.0,
+   "dy": 0.0,
+   "start": 1585,
+   "n": 301
+  },
+  {
+   "name": "strokes/apex0.15/+0.04,+0.00",
+   "kind": "strokes",
+   "pose": "ready",
+   "apex": 0.15,
+   "dx": 0.04,
+   "dy": 0.0,
+   "start": 1886,
+   "n": 301
+  },
+  {
+   "name": "strokes/apex0.15/-0.04,+0.00",
+   "kind": "strokes",
+   "pose": "ready",
+   "apex": 0.15,
+   "dx": -0.04,
+   "dy": 0.0,
+   "start": 2187,
+   "n": 301
+  },
+  {
+   "name": "strokes/apex0.15/+0.00,+0.04",
+   "kind": "strokes",
+   "pose": "ready",
+   "apex": 0.15,
+   "dx": 0.0,
+   "dy": 0.04,
+   "start": 2488,
+   "n": 301
+  },
+  {
+   "name": "strokes/apex0.15/+0.00,-0.04",
+   "kind": "strokes",
+   "pose": "ready",
+   "apex": 0.15,
+   "dx": 0.0,
+   "dy": -0.04,
+   "start": 2789,
+   "n": 301
+  },
+  {
+   "name": "strokes/apex0.12/+0.00,+0.00",
+   "kind": "strokes",
+   "pose": "ready",
+   "apex": 0.12,
+   "dx": 0.0,
+   "dy": 0.0,
+   "start": 3090,
+   "n": 289
+  },
+  {
+   "name": "strokes/apex0.12/+0.04,+0.00",
+   "kind": "strokes",
+   "pose": "ready",
+   "apex": 0.12,
+   "dx": 0.04,
+   "dy": 0.0,
+   "start": 3379,
+   "n": 289
+  },
+  {
+   "name": "strokes/apex0.12/-0.04,+0.00",
+   "kind": "strokes",
+   "pose": "ready",
+   "apex": 0.12,
+   "dx": -0.04,
+   "dy": 0.0,
+   "start": 3668,
+   "n": 289
+  },
+  {
+   "name": "strokes/apex0.12/+0.00,+0.04",
+   "kind": "strokes",
+   "pose": "ready",
+   "apex": 0.12,
+   "dx": 0.0,
+   "dy": 0.04,
+   "start": 3957,
+   "n": 289
+  },
+  {
+   "name": "strokes/apex0.12/+0.00,-0.04",
+   "kind": "strokes",
+   "pose": "ready",
+   "apex": 0.12,
+   "dx": 0.0,
+   "dy": -0.04,
+   "start": 4246,
+   "n": 289
+  }
+ ],
+ "series": [
+  [
+   0.18,
+   0.0,
+   0.0
+  ],
+  [
+   0.18,
+   0.04,
+   0.0
+  ],
+  [
+   0.18,
+   -0.04,
+   0.0
+  ],
+  [
+   0.18,
+   0.0,
+   0.04
+  ],
+  [
+   0.18,
+   0.0,
+   -0.04
+  ],
+  [
+   0.15,
+   0.0,
+   0.0
+  ],
+  [
+   0.15,
+   0.04,
+   0.0
+  ],
+  [
+   0.15,
+   -0.04,
+   0.0
+  ],
+  [
+   0.15,
+   0.0,
+   0.04
+  ],
+  [
+   0.15,
+   0.0,
+   -0.04
+  ],
+  [
+   0.12,
+   0.0,
+   0.0
+  ],
+  [
+   0.12,
+   0.04,
+   0.0
+  ],
+  [
+   0.12,
+   -0.04,
+   0.0
+  ],
+  [
+   0.12,
+   0.0,
+   0.04
+  ],
+  [
+   0.12,
+   0.0,
+   -0.04
+  ]
+ ],
+ "timing": {
+  "stroke_time": 0.1,
+  "follow": 0.08
+ },
+ "bounces": 5,
+ "created": "2026-11-10_093504"
+}

@@ -47,6 +47,8 @@ def main() -> None:
     ap.add_argument("--lead", type=float, nargs="+", default=None,
                     help="s, plan look-ahead per group (default: the tracking model's delay)")
     ap.add_argument("--apex", type=float, default=0.25)
+    ap.add_argument("--stroke-time", type=float, help="s, the stroke's constant-acceleration time (default 0.12)")
+    ap.add_argument("--follow", type=float, help="s, follow-through back to ready after impact (default 0.15)")
     ap.add_argument("--drop", type=float, default=0.30, help="ball release height above the hitting plane [m]")
     ap.add_argument("--randomize", action="store_true")
     ap.add_argument("--ball-latency", type=float, default=0.0, help="ms, rounded to control steps")
@@ -84,7 +86,8 @@ def main() -> None:
         import pingpong_sim.bouncer as bouncer_mod
 
         ball_filter_mod.G = bouncer_mod.G = args.predictor_gravity
-    cfg = BouncerCfg(apex=args.apex, feedforward=not args.no_feedforward)
+    timing = {k: v for k, v in (("stroke_time", args.stroke_time), ("follow", args.follow)) if v is not None}
+    cfg = BouncerCfg(apex=args.apex, feedforward=not args.no_feedforward, **timing)
     kin = ArmKinematics(m, device=dev)
     ids, _ = h.robot.find_joints(ARM_JOINTS, preserve_order=True)
     q_ready = torch.tensor([READY_JOINT_POS[j] for j in ARM_JOINTS], device=dev)

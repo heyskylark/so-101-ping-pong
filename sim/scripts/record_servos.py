@@ -350,12 +350,12 @@ def cmd_map(args) -> int:
     return 0
 
 
-STROKE_SERIES = [(apex, dx, dy) for apex in (0.25, 0.20, 0.15) for dx, dy in ((0.0, 0.0), (0.04, 0.0), (-0.04, 0.0),
-                                                                             (0.0, 0.04), (0.0, -0.04))]
+STROKE_APEXES = (0.25, 0.20, 0.15)
+STROKE_OFFSETS = ((0.0, 0.0), (0.04, 0.0), (-0.04, 0.0), (0.0, 0.04), (0.0, -0.04))  # impact point vs target [m]
 STROKE_BOUNCES = 5
 
 
-def stroke_series(kin_t, q_ready: np.ndarray, apex: float, dx: float, dy: float):
+def stroke_series(kin_t, q_ready: np.ndarray, apex: float, dx: float, dy: float, **timing):
     """The scripted bouncer's goals for one imaginary ball: dropped from 0.25 m above the hitting plane at
     target + (dx, dy), then bounced ideally (to `apex`, steered back as the bouncer intends) STROKE_BOUNCES times.
     Returns feedforward goals and the bouncer's kinematic plan (N, 5) at RATE, and the impact times."""
@@ -366,7 +366,7 @@ def stroke_series(kin_t, q_ready: np.ndarray, apex: float, dx: float, dy: float)
     from pingpong_sim.bouncer import BouncerCfg, ScriptedBouncer, apex_speed
     from pingpong_sim.ball import G
 
-    cfg = BouncerCfg(apex=apex)
+    cfg = BouncerCfg(apex=apex, **timing)
     b = ScriptedBouncer(cfg, kin_t, torch.tensor(q_ready, dtype=torch.float32), 1)
     b.reset(torch.zeros(1, dtype=torch.long), 0.0)
     tgt = np.array(cfg.target_xy)
@@ -405,8 +405,10 @@ def cmd_strokes(args) -> int:
     kin_t = ArmKinematics(model.m, prefix="", device="cpu")
     q_ready = np.array([READY_JOINT_POS[j] for j in JOINTS])
     goals, plans, seg, segments, impacts = [], [], [], [], []
-    for i, (apex, dx, dy) in enumerate(STROKE_SERIES):
-        g, pl, imp = stroke_series(kin_t, q_ready, apex, dx, dy)
+    series = [(a, dx, dy) for a in (args.apexes or STROKE_APEXES) for dx, dy in STROKE_OFFSETS]
+    timing = {k: v for k, v in (("stroke_time", args.stroke_time), ("follow", args.follow)) if v is not None}
+    for i, (apex, dx, dy) in enumerate(series):
+        g, pl, imp = stroke_series(kin_t, q_ready, apex, dx, dy, **timing)
         hold = np.repeat(q_ready[None], int(1.0 * RATE), axis=0)
         g, pl = np.concatenate([hold, g]), np.concatenate([hold, pl])
         n0 = sum(len(x) for x in goals)
@@ -417,7 +419,7 @@ def cmd_strokes(args) -> int:
         plans.append(pl)
         seg.append(np.full(len(g), i))
     goals, plans, seg = np.concatenate(goals), np.concatenate(plans), np.concatenate(seg)
-    print(f"{len(STROKE_SERIES)} series, {len(impacts)} strokes, {len(goals) / RATE:.0f} s")
+    print(f"{len(series)} series, {len(impacts)} strokes, {len(goals) / RATE:.0f} s")
     log = {k: [] for k in ("t_cmd", "t_read", "goal", "pos", "vel", "load", "volt", "temp", "seg", "phase")}
     status = "complete"
     with ArmSession(bus, joint_offsets=offsets, confirm=not args.sim) as s:
@@ -452,7 +454,7 @@ def cmd_strokes(args) -> int:
     (out / "meta.json").write_text(json.dumps(dict(
         backend="sim" if args.sim else "real", port=None if args.sim else args.port, status=status, rate_hz=RATE,
         joints=JOINTS, angles="true (joint offsets added)", joint_offsets=offsets, segments=segments,
-        series=STROKE_SERIES, bounces=STROKE_BOUNCES, created=stamp), indent=1,
+        series=series, timing=timing, bounces=STROKE_BOUNCES, created=stamp), indent=1,
         default=lambda o: o.tolist() if hasattr(o, "tolist") else str(o)) + "\n")
     err = arrays["goal"] - arrays["pos"]
     print(f"recorded {len(arrays['t_read'])} samples; supply {arrays['volt'].min():.1f}-{arrays['volt'].max():.1f} V, "
@@ -465,6 +467,9 @@ def cmd_strokes(args) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("command", choices=("map", "record", "strokes"))
+    ap.add_argument("--stroke-time", type=float, help="strokes: the bouncer's stroke time (default its own)")
+    ap.add_argument("--follow", type=float, help="strokes: the bouncer's follow-through time (default its own)")
+    ap.add_argument("--apexes", type=float, nargs="+", help="strokes: bounce heights (default 0.25 0.20 0.15)")
     src = ap.add_mutually_exclusive_group(required=True)
     src.add_argument("--port", help="servo bus serial port, e.g. /dev/ttyACM0")
     src.add_argument("--sim", action="store_true", help="run against the MuJoCo Warp model")

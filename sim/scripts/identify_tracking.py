@@ -117,8 +117,9 @@ def fit_recording(dirs: list[Path], out: Path = OUT) -> None:
         if np.isfinite(rms).all() and (best is None or rms.mean() < best[0]):
             best = (rms.mean(), A, B, c, ds, sol.x)
     score, A, B, c, ds, x = best
-    if score >= rms0.mean():
-        print(f"the refit (held-out mean {score:.2f} deg) doesn't beat the model in use ({rms0.mean():.2f}): kept")
+    if score > 0.9 * rms0.mean():  # 2026-11-10 real strokes: 0.57 vs 0.59 deg, not worth a different feedforward
+        print(f"the refit (held-out mean {score:.2f} deg) isn't 10 % better than the model in use ({rms0.mean():.2f}): "
+              "kept")
         return
     sag = np.linalg.solve(A, c)
     out.write_text(json.dumps(dict(joints=list(ARM_JOINTS), A=A.tolist(), B=B.tolist(), c=c.tolist(),

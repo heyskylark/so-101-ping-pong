@@ -72,29 +72,38 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--band-weight", type=float, default=1.0,
                     help="weight of the phase-free 2-8 Hz amplitude term (0: pointwise error only)")
+    ap.add_argument("--stroke-weight", type=int, default=1,
+                    help="each stroke fit window (record_servos.py strokes) counts this many times")
     args = ap.parse_args()
     out = REPO / "measurements" / "servo" / f"fit_{dt.datetime.now().strftime('%Y-%m-%d_%H%M%S')}"
     out.mkdir(parents=True)
 
     w = sysid.load_windows_many(args.run)
     fit, val = w.split == "fit", w.split == "val"
-    print(f"{', '.join(r.name for r in args.run)}: {fit.sum()} fit windows, {val.sum()} held-out windows, 2 s each")
+    stroke = w.kind[:, 0] == "strokes"
+    print(f"{', '.join(r.name for r in args.run)}: {fit.sum()} fit windows, {val.sum()} held-out windows, 2 s each "
+          f"({(fit & stroke).sum()} / {(val & stroke).sum()} of them strokes)")
     base = bam_baseline(json.loads(SERVO_PARAMS.read_text()), J)
+    splits = (("fit", fit), ("val", val)) + ((("strokes_val", val & stroke),) if (val & stroke).any() else ())
 
     # Reference points: the pre-fit model, and "the arm does exactly what it is told" (goal as the prediction).
     goal_at_read = np.take_along_axis(w.goal[:, int(sysid.MAX_DELAY / sysid.DT):], w.read_step[..., None], axis=1)
-    rms = {"goal_as_prediction": {s: sysid.rms_by_joint(goal_at_read[m], w.pos[m]) for s, m in (("fit", fit), ("val", val))}}
+    rms = {"goal_as_prediction": {s: sysid.rms_by_joint(goal_at_read[m], w.pos[m]) for s, m in splits}}
     sim_base = evaluate(w, [base])[0]
-    rms["before"] = {s: sysid.rms_by_joint(sim_base[m], w.pos[m]) for s, m in (("fit", fit), ("val", val))}
+    rms["before"] = {s: sysid.rms_by_joint(sim_base[m], w.pos[m]) for s, m in splits}
     for k, v in rms.items():
-        print(f"{k:18s} RMS [deg] fit {v['fit'].round(2)}  held-out {v['val'].round(2)}")
+        print(f"{k:18s} RMS [deg] " + "  ".join(f"{s} {v[s].round(2)}" for s, _ in splits))
 
     # CMA-ES in the unit cube. Start: the pre-fit model with mid-range gear stiffness and delay (rigid gears and
     # zero delay sit outside / on the search bounds).
     start = dict(base, gear_stiffness=np.full(J, 150.0), delay=0.02, feedback_delay=0.006, max_current=2.0)
     opt = CMA(mean=encode(start, J), sigma=args.sigma, bounds=np.tile([0.0, 1.0], (param_dim(J), 1)),
               population_size=args.pop, seed=args.seed)
-    replay = sysid.Replay(w.subset(fit), args.pop)
+    # Stroke windows count `stroke_weight` times (a few among hundreds of slow-motion windows otherwise).
+    idx = np.concatenate([np.flatnonzero(fit & ~stroke), np.repeat(np.flatnonzero(fit & stroke), args.stroke_weight)])
+    w_fit = sysid.Windows(**{k: (np.asarray(v)[idx] if k != "names" else [v[i] for i in idx])
+                             for k, v in w.__dict__.items()})
+    replay = sysid.Replay(w_fit, args.pop)
     history, best_x, best_c = [], None, np.inf
     t0 = time.time()
     for g in range(args.gens):
@@ -115,8 +124,8 @@ def main() -> None:
     best = {k: np.asarray(v) for k, v in decode(best_x[None], J).items()}
     best = {k: v[0] for k, v in best.items()}
     sim_fit = evaluate(w, [best])[0]
-    rms["after"] = {s: sysid.rms_by_joint(sim_fit[m], w.pos[m]) for s, m in (("fit", fit), ("val", val))}
-    print(f"{'after':18s} RMS [deg] fit {rms['after']['fit'].round(2)}  held-out {rms['after']['val'].round(2)}")
+    rms["after"] = {s: sysid.rms_by_joint(sim_fit[m], w.pos[m]) for s, m in splits}
+    print(f"{'after':18s} RMS [deg] " + "  ".join(f"{s} {rms['after'][s].round(2)}" for s, _ in splits))
     coup = {"real": coupling(w, None), "before": coupling(w, sim_base), "after": coupling(w, sim_fit)}
     print("p2p motion of each joint [deg] during another joint's steps (real / before / after):")
     for excited in coup["real"]:
