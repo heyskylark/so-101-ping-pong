@@ -335,6 +335,10 @@ def overhead_poses(links: Links, model, cam_p: np.ndarray, cam_axis: np.ndarray,
     axis = cam_axis / np.linalg.norm(cam_axis)
     q = rng.uniform(np.maximum(box_lo, lo), np.minimum(box_hi, hi), size=(tries, 5))
     q[:, 4] = np.sign(q[:, 4]) * rng.uniform(1.9, 2.7, tries)  # back face up: roll well past +-90 deg
+    # 0.1 rad inside the ranges in the angles that will be sent (true - calibrated offsets).
+    raw_off = np.zeros(5) if camera is None or "offsets" not in camera else np.asarray(camera["offsets"])
+    q = q[((q - raw_off) >= lo).all(1) & ((q - raw_off) <= hi).all(1)]
+    tries = len(q)
     R_l, p_l = links(q)
     c = np.einsum("nij,j->ni", R_l, links.back_p) + p_l
     nrm = np.einsum("nij,j->ni", R_l, links.back_R[:, 2])

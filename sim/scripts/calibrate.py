@@ -242,7 +242,7 @@ def cmd_overhead(args) -> int:
                     cp, ca = np.array(calib.p), np.array(calib.R)[:, 2]
                     camera = {"K": calib.Km, "D": calib.Dm, "R": np.array(calib.R), "p": cp, "width": calib.width,
                               "height": calib.height, "tag_pts": tag.object_points, "tag_R": np.array(prev.tag_R),
-                              "tag_p": np.array(prev.tag_p)}
+                              "tag_p": np.array(prev.tag_p), "offsets": off_prev}
                 poses = overhead_poses(links, s.model, cp, ca, n=args.poses, camera=camera) - off_prev  # -> raw
                 check_tour(s, poses)
                 qs, corners = [], []

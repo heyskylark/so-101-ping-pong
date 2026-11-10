@@ -221,7 +221,10 @@ class UvcCamera(threading.Thread):
                 return items
 
     def stop(self) -> None:
+        """Stop capturing and wait for the thread (a capture thread alive at interpreter exit aborts the process)."""
         self.stop_flag.set()
+        if self.is_alive() and threading.current_thread() is not self:
+            self.join(2.0)
 
 
 class BallCameras:
