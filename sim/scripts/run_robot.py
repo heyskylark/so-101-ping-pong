@@ -43,7 +43,8 @@ import pingpong_sim.task  # noqa: F401  (registers the tasks)
 from mjlab.tasks.registry import load_env_cfg
 from pingpong_sim.controller import BounceController, OnnxPolicy
 from pingpong_sim.kinematics import ArmKinematics
-from pingpong_sim.real.arm import RATE, ArmSession, open_bus
+from pingpong_sim.ball import BALL_RADIUS
+from pingpong_sim.real.arm import RATE, ArmSession, PlanBuilder, open_bus
 from pingpong_sim.real.camera_model import ArmCalib, CameraCalib, apply_wrist_mount, nominal, to_measurements
 from pingpong_sim.robot import ARM_JOINTS, READY_JOINT_POS
 from pingpong_sim.servo_bus import JOINTS
@@ -55,6 +56,49 @@ MAX_TILT_DEG = 45.0
 LOST_AFTER = 0.5  # s without a detection
 AWAY = 0.25  # m from the target
 RECOVER_S = 0.7
+REST = dict(speed=0.15, gap=0.03, lateral=0.06, hold=0.5)  # pop test: ball at rest on the blade [m/s, m, m, s]
+
+
+def pop_goals(kin: ArmKinematics, q_ready: np.ndarray, speed: float, accel_time: float = 0.15,
+              brake: float = 12.0, back: float = 0.5, drop: float = 0.12, lower: float = 0.6,
+              pause: float = 0.3) -> tuple[np.ndarray, np.ndarray]:
+    """Servo goals (feedforward through the bouncer's tracking model) and the plan (N, 5) at RATE for one pop: the
+    face lowers `drop` over `lower` s (minimum jerk, < g: the ball stays on), holds `pause`, then goes straight up,
+    level, its speed rising smoothly to `speed` over `accel_time`, then falling smoothly to 0 at `brake` m/s^2 on
+    average (1.9x that at the peak: past g, a resting ball leaves near `speed`), then a minimum-jerk return to ready
+    over `back` s. A level face reaches only ~0.105 m above ready (0.055-0.355 m at the target), hence the lowered
+    start. Smooth profiles keep the feedforward offsets near the bouncer's (an abrupt switch from accelerating to
+    braking spiked them to tens of degrees). Joint angles from IK."""
+    import json as json_
+
+    from pingpong_sim.bouncer import TRACKING_MODEL
+
+    def smooth(x):
+        x = np.clip(x, 0, 1)
+        return 10 * x**3 - 15 * x**4 + 6 * x**5
+
+    dt = 1.0 / RATE
+    t_b = speed / brake
+    t0 = lower + pause  # pop start
+    t = np.arange(0.0, t0 + accel_time + t_b + back + 0.2, dt)
+    tp = t - t0
+    v = speed * (smooth(tp / accel_time) - smooth((tp - accel_time) / t_b))
+    z_up = -drop + np.cumsum(v) * dt
+    t_top = t0 + accel_time + t_b
+    z_top = z_up[np.searchsorted(t, t_top)]
+    z = np.where(t < t0, -drop * smooth(t / lower),
+                 np.where(t <= t_top, z_up, z_top * (1 - smooth((t - t_top) / back))))
+    face0, normal0, _, _ = kin.fk(torch.tensor(q_ready, dtype=torch.float32)[None])
+    q, qs = torch.tensor(q_ready, dtype=torch.float32)[None], []
+    for dz in z:
+        q, _ = kin.ik(face0 + torch.tensor([[0.0, 0.0, float(dz)]]), normal0, q, iters=8)
+        qs.append(q[0].numpy().astype(float))
+    plan = np.array(qs)
+    qd = np.gradient(plan, dt, axis=0)
+    qdd = np.gradient(qd, dt, axis=0)
+    tm = json_.loads(TRACKING_MODEL.read_text())
+    A_inv, B, c = np.linalg.inv(np.array(tm["A"])), np.array(tm["B"]), np.array(tm["c"])
+    return plan + (qdd + qd @ B.T - c) @ A_inv.T, plan
 
 
 def load_calibs(names: list[str]) -> tuple[dict[str, CameraCalib], list[str]]:
@@ -80,7 +124,7 @@ def load_calibs(names: list[str]) -> tuple[dict[str, CameraCalib], list[str]]:
 
 class Run:
     def __init__(self, session: ArmSession, cameras, calibs: dict[str, CameraCalib], task_id: str,
-                 policy_dir: Path | None, kin: ArmKinematics, apex: float | None = None):
+                 policy_dir: Path | None, kin: ArmKinematics, apex: float | None = None, pop: float | None = None):
         self.s, self.cams, self.calibs = session, cameras, calibs
         task = load_env_cfg(task_id).events["reset_episode"].params["task"]
         self.task = task
@@ -90,6 +134,8 @@ class Run:
         ccfg = replace(ccfg, apex=apex if apex is not None else ccfg.apex)
         self.ctrl = BounceController(ccfg, kin, self.q_ready, 1, 1.0 / RATE, "cpu")
         self.policy = OnnxPolicy(policy_dir, self.ctrl) if policy_dir else None
+        self.pop = pop_goals(kin, self.q_ready.numpy(), pop)[0] if pop else None  # pop test: never plays
+        self.pops = 0
         self.ids = torch.zeros(1, dtype=torch.long)
         self.log: dict[str, list] = {k: [] for k in ("t", "q", "dq", "goal", "base", "est_p", "est_v", "tracked",
                                                      "trusted", "state", "n_det", "work_ms", "unsafe")}
@@ -105,7 +151,7 @@ class Run:
         s, ctrl = self.s, self.ctrl
         t0 = s.bus.now()
         hist_t, hist_q = [], []
-        state, state_since, last_goal = "WAIT", 0.0, self.q_ready.numpy().copy()
+        state, state_since, last_goal, rest_since = "WAIT", 0.0, self.q_ready.numpy().copy(), None
         recover_from = last_goal
         ctrl.reset(self.ids, 0.0)
         prev_vz, n = 0.0, 0
@@ -128,11 +174,27 @@ class Run:
             # Episode state machine.
             if state == "WAIT":
                 goal = self.q_ready.numpy()
-                if above and float(ctrl.age[0]) < 0.1:
+                if self.pop is not None:  # pop test: launch a ball resting on the blade, never play
+                    face, _, _, _ = self.kin.fk(torch.tensor(r.q, dtype=torch.float32)[None])
+                    face = face[0].numpy()
+                    gap = p[2] - face[2] - BALL_RADIUS
+                    resting = (tracked and float(np.linalg.norm(v)) < REST["speed"] and -0.01 < gap < REST["gap"]
+                               and np.hypot(*(p[:2] - face[:2])) < REST["lateral"])
+                    rest_since = (rest_since if resting and rest_since is not None else now) if resting else None
+                    if rest_since is not None and now - rest_since > REST["hold"]:
+                        state, state_since, rest_since = "POP", now, None
+                        self.pops += 1
+                        print(f"  {now:6.1f} s: pop {self.pops}")
+                elif above and float(ctrl.age[0]) < 0.1:
                     state, state_since = "PLAY", now
                     self.episodes += 1
                     if self.policy:
                         self.policy.reset()
+            elif state == "POP":
+                k = int(round((now - state_since) * RATE))
+                goal = self.pop[min(k, len(self.pop) - 1)]
+                if k >= len(self.pop):
+                    state, state_since = "WAIT", now
             elif state == "PLAY":
                 goal = (self.policy.act() if self.policy else ctrl.goal_base())[0].numpy()
                 lost = not tracked or float(ctrl.age[0]) > LOST_AFTER
@@ -200,7 +262,7 @@ class Run:
                 f"{1e3 * np.percentile(dts, 99):.1f} ms; work p50 {np.median(L['work_ms']):.1f} ms, p99 "
                 f"{np.percentile(L['work_ms'], 99):.1f} ms\n"
                 f"  detections/s: " + ", ".join(f"{c} {k / span:.1f}" for c, k in per_cam.items()) + "\n"
-                f"  episodes {self.episodes}, bounces (from the estimate) {self.bounces}, ticks tracked "
+                f"  episodes {self.episodes}, pops {self.pops}, bounces (from the estimate) {self.bounces}, ticks tracked "
                 f"{100 * L['tracked'].mean():.0f} %, unsafe goals replaced {int(L['unsafe'].sum())}")
 
 
@@ -215,6 +277,9 @@ def main() -> int:
     ap.add_argument("--cameras", nargs="+", default=["overhead", "wrist"])
     ap.add_argument("--seconds", type=float, default=120.0)
     ap.add_argument("--out", help="log directory (default measurements/runs/<time>, sim: sim/build/runs/<time>)")
+    ap.add_argument("--pop", type=float, metavar="SPEED",
+                    help="pop test instead of play: a ball resting on the blade is launched straight up at SPEED "
+                         "[m/s] (face level, brakes harder than g), again each time it settles: clean free flights")
     ap.add_argument("--apex", type=float, help="scripted bouncer: bounce height above the hitting plane [m] "
                     "(default: the task's 0.25; the overhead camera sees the ball up to ~0.2 m above the paddle)")
     ap.add_argument("--ball-gravity", type=float,
@@ -222,7 +287,7 @@ def main() -> int:
                          "9.81). Real runs predicted impacts ~28 ms early, as if the ball fell at ~8.7 m/s^2")
     args = ap.parse_args()
     torch.set_num_threads(1)
-    policy_dir = None if args.scripted else Path(args.policy)
+    policy_dir = None if args.scripted or args.pop else Path(args.policy)
     if policy_dir and args.apex is not None:
         raise SystemExit("--apex changes the scripted bouncer the policy was trained on: use it with --scripted")
     task_id = json.loads((policy_dir / "policy.json").read_text())["task_id"] if policy_dir else "PingPong-Bounce-Residual"
@@ -261,15 +326,29 @@ def main() -> int:
         kin = ArmKinematics(session.model.m, prefix="", device="cpu")
         if "wrist" in calibs:
             apply_wrist_mount(kin, calibs["wrist"])
-        run = Run(session, cams, calibs, task_id, policy_dir, kin, apex=args.apex)
+        run = Run(session, cams, calibs, task_id, policy_dir, kin, apex=args.apex, pop=args.pop)
+        if run.pop is not None:
+            b = PlanBuilder(np.array([READY_JOINT_POS[j] for j in JOINTS]))
+            b.add(run.pop, name="pop")
+            problems = session.check(b.build())
+            if problems:
+                raise SystemExit("pop plan check failed:\n  " + "\n  ".join(problems))
         cams.start()
         try:
             q_ready = np.array([READY_JOINT_POS[j] for j in JOINTS])
             session.move_to(q_ready)
-            if args.sim:
+            if args.sim and args.pop:  # the "person" sets the ball down on the paddle centre
+                face, _, _, _ = kin.fk(torch.tensor(q_ready, dtype=torch.float32)[None])
+                world.launch()
+                world.set_ball(face + torch.tensor([[0.0, 0.0, BALL_RADIUS + 0.001]]), torch.zeros(1, 3))
+                world.release = world.now
+            elif args.sim:
                 world.launch()  # the "person" drops the first ball once the arm is ready
-            print(f"at ready; running {'the scripted bouncer' if args.scripted else policy_dir} for {args.seconds:.0f} s. "
-                  "Hold a ball still above the paddle, or drop it there.")
+            what = (f"the pop test ({args.pop:.2f} m/s)" if args.pop else 'the scripted bouncer' if args.scripted
+                    else policy_dir)
+            print(f"at ready; running {what} for {args.seconds:.0f} s. " + (
+                "Set the ball down on the paddle centre; it is launched each time it settles." if args.pop else
+                "Hold a ball still above the paddle, or drop it there."))
             with torch.inference_mode():  # less dispatch per tensor op
                 run.run(args.seconds)
             session.move_to(session.start)
