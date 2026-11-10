@@ -37,7 +37,7 @@ from dataclasses import dataclass, replace
 import torch
 
 from pingpong_sim.ball import BALL_RADIUS
-from pingpong_sim.ball_filter import TickHistory, flight, orthonormalize
+from pingpong_sim.ball_filter import TickHistory, flight, measurement_sigma, orthonormalize
 
 
 TILT = math.radians(25.0)  # overhead camera plate, from straight down (Overhead_Cam_Mount_32x32 cam_mount_top.stl)
@@ -273,10 +273,8 @@ class CameraRig:
         th = (r_px / fb).clamp(max=1.45)
         xy = uv_m / r_px[:, None] * torch.tan(th)[:, None]
         z = torch.cat([xy, (diam_m.clamp_min(1.0) / fb)[:, None]], dim=1)
-        sec2 = 1 / torch.cos(th) ** 2
-        s_ang = torch.sqrt((cfg.assumed_pixel_noise / fb) ** 2 + cfg.assumed_angle_floor**2) * sec2
-        s_size = torch.sqrt((cfg.assumed_diameter_noise / fb) ** 2 + (cfg.assumed_size_floor * z[:, 2]) ** 2)
-        sigma = torch.stack([s_ang, s_ang, s_size], dim=1)
+        sigma = measurement_sigma(th, z[:, 2], fb, cfg.assumed_pixel_noise, cfg.assumed_diameter_noise,
+                                  cfg.assumed_angle_floor, cfg.assumed_size_floor)
         # Believed timestamp and camera pose.
         t_stamp = tc + P["stamp_bias"] + cfg.stamp_jitter_ms / 1e3 * torch.randn(n, device=dev)
         if cfg.mount == "world":
@@ -284,6 +282,9 @@ class CameraRig:
         else:
             s_arm = self.arm.at(t_stamp, ("wR", "wp"))
             Rb, pb = orthonormalize(s_arm["wR"]), s_arm["wp"]
-        return {"t": t_stamp, "R": Rb, "p": pb, "z": z, "sigma": sigma, "valid": valid, "arrived": arrived,
-                "visible": visible, "in_image": arrived & in_image, "occluded": arrived & occluded,
-                "false": false & arrived, "err_px": (uv_m - uv).norm(dim=-1)}
+        # uv_px / diam_px / cam: the raw pixel detection (offsets from the image centre along camera x, y; diameter)
+        # and camera index, for the real-camera code path (real/sim_backend.py).
+        return {"t": t_stamp, "R": Rb, "p": pb, "z": z, "sigma": sigma, "valid": valid,
+                "uv_px": uv_m, "diam_px": diam_m.clamp_min(1.0), "cam": torch.full((n,), c, device=dev),
+                "arrived": arrived, "visible": visible, "in_image": arrived & in_image,
+                "occluded": arrived & occluded, "false": false & arrived, "err_px": (uv_m - uv).norm(dim=-1)}

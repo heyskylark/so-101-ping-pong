@@ -157,6 +157,18 @@ class TickHistory:
         return {k: a[k] + w.view(-1, *([1] * (a[k].dim() - 1))) * (c[k] - a[k]) for k in a}
 
 
+def measurement_sigma(theta: torch.Tensor, alpha: torch.Tensor, focal, pixel_noise: float, diameter_noise: float,
+                      angle_floor: float, size_floor: float) -> torch.Tensor:
+    """Standard deviations (B, 3) the filter assumes for a detection [x/z, y/z, alpha] at angle `theta` from the
+    optical axis with angular diameter `alpha` (rad), for a lens of `focal` px/rad: pixel noise as an angle plus a
+    calibration floor, stretched by the tan projection (sec^2 theta); diameter noise plus a relative size floor.
+    Shared by the simulated cameras and the real ones."""
+    sec2 = 1 / torch.cos(theta) ** 2
+    s_ang = torch.sqrt(torch.as_tensor((pixel_noise / focal) ** 2 + angle_floor**2)) * sec2  # focal: float or (B,)
+    s_size = torch.sqrt((diameter_noise / focal) ** 2 + (size_floor * alpha) ** 2)
+    return torch.stack([s_ang, s_ang, s_size], dim=1)
+
+
 def project(p: torch.Tensor, cam_R: torch.Tensor, cam_p: torch.Tensor):
     """Measurement model. Ball centres p (B, 3) seen from cameras (world-from-camera R, centre) -> [x/z, y/z, alpha]
     (B, 3), its Jacobian w.r.t. p (B, 3, 3), and whether the ball is in front of the camera (B,)."""

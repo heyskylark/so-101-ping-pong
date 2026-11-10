@@ -28,11 +28,12 @@ def _quat_mat(q: np.ndarray) -> np.ndarray:
 
 
 class ArmKinematics:
-    def __init__(self, mj_model: mujoco.MjModel, prefix: str = "robot/", device: str = "cpu"):
+    def __init__(self, mj_model: mujoco.MjModel, prefix: str = "robot/", device: str = "cpu",
+                 dtype: torch.dtype = torch.float32):
         d = mujoco.MjData(mj_model)
         mujoco.mj_forward(mj_model, d)
         base = mj_model.body(prefix + "base").id
-        f = lambda a: torch.tensor(np.asarray(a), dtype=torch.float32, device=device)  # noqa: E731
+        f = lambda a: torch.tensor(np.asarray(a), dtype=dtype, device=device)  # noqa: E731
         self.device = device
         self.base_R, self.base_p = f(d.xmat[base].reshape(3, 3)), f(d.xpos[base])
         self.links = []  # (R_local, p_local, joint axis or None, joint pos)
@@ -59,10 +60,10 @@ class ArmKinematics:
     def _rot(axis: torch.Tensor, angle: torch.Tensor) -> torch.Tensor:
         """Rodrigues: (B,) angles about a fixed unit axis -> (B, 3, 3)."""
         k = axis / axis.norm()
-        K = torch.zeros(3, 3, device=axis.device)
+        K = torch.zeros(3, 3, device=axis.device, dtype=axis.dtype)
         K[0, 1], K[0, 2], K[1, 0], K[1, 2], K[2, 0], K[2, 1] = -k[2], k[1], k[2], -k[0], -k[1], k[0]
         s, c = torch.sin(angle)[:, None, None], torch.cos(angle)[:, None, None]
-        return torch.eye(3, device=axis.device) + s * K + (1 - c) * (K @ K)
+        return torch.eye(3, device=axis.device, dtype=axis.dtype) + s * K + (1 - c) * (K @ K)
 
     def _chain(self, q: torch.Tensor):
         """Last link's world rotation (B, 3, 3) and position (B, 3), joint origins and world joint axes (B, 5, 3)."""
@@ -99,6 +100,12 @@ class ArmKinematics:
         centre (B, 3)."""
         R, p, _, _ = self._chain(q)
         return R @ self.cam_R, p + R @ self.cam_p
+
+    def link(self, q: torch.Tensor):
+        """q (B, 5) encoder angles -> world rotation (B, 3, 3) and position (B, 3) of the paddle link (the body
+        the blade, its face sites and the wrist camera are fixed to)."""
+        R, p, _, _ = self._chain(q)
+        return R, p
 
     def jacobian(self, face: torch.Tensor, normal: torch.Tensor, origins: torch.Tensor, axes: torch.Tensor):
         """d(face)/dq and d(normal)/dq, each (B, 3, 5), for revolute joints."""
