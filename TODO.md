@@ -514,6 +514,10 @@ drifting** parameters (this paddle's restitution, latency, backlash, sag), which
          | ×1.12 | 25.0 % | 45.8 % | 14 / 46 |
 
          v3 per bounce: apex 141 ± 45 mm (target 150), landing 17 / 46 mm, contact 10 / 26 mm off centre.
+         `eval_task.py` (training env: belief 0.85–1.15 drawn per episode, masses randomized; 256 worlds × 40 s):
+         scripted bouncer alone 2.9 % full 20 s (bounces 1 / 4 / 16), `residual_v3` 34.0 % (1 / 13 / 53; mean
+         23.3), apex 143 ± 50 mm vs 162 ± 81, landing 20 / 54 mm vs 42 / 115, tracked 96.7 % vs 89.7 % of steps;
+         residuals p50 0.5–1.2°, p99 2.5–4.8° per joint; no joint limits; even across restitution (32–36 %).
        - Correction (`b7071a7`): `calibrate.gravity_measurements` gave every wrist detection the arm pose at the
          end of the recording (a 32-tick ArmHistory fed the whole log). The gravity step held the arm still, so
          it was unaffected; the run-log analyses above (impact times from camera points, the wrist camera's
