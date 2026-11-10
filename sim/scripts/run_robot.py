@@ -33,6 +33,7 @@ import argparse
 import datetime as dt
 import json
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -79,13 +80,15 @@ def load_calibs(names: list[str]) -> tuple[dict[str, CameraCalib], list[str]]:
 
 class Run:
     def __init__(self, session: ArmSession, cameras, calibs: dict[str, CameraCalib], task_id: str,
-                 policy_dir: Path | None, kin: ArmKinematics):
+                 policy_dir: Path | None, kin: ArmKinematics, apex: float | None = None):
         self.s, self.cams, self.calibs = session, cameras, calibs
         task = load_env_cfg(task_id).events["reset_episode"].params["task"]
         self.task = task
         self.kin = kin
         self.q_ready = torch.tensor([READY_JOINT_POS[j] for j in ARM_JOINTS])
-        self.ctrl = BounceController(task.controller_cfg(), kin, self.q_ready, 1, 1.0 / RATE, "cpu")
+        ccfg = task.controller_cfg()
+        ccfg = replace(ccfg, apex=apex if apex is not None else ccfg.apex)
+        self.ctrl = BounceController(ccfg, kin, self.q_ready, 1, 1.0 / RATE, "cpu")
         self.policy = OnnxPolicy(policy_dir, self.ctrl) if policy_dir else None
         self.ids = torch.zeros(1, dtype=torch.long)
         self.log: dict[str, list] = {k: [] for k in ("t", "q", "dq", "goal", "base", "est_p", "est_v", "tracked",
@@ -145,7 +148,16 @@ class Run:
                 a = min(1.0, (now - state_since) / RECOVER_S)
                 a = 10 * a**3 - 15 * a**4 + 6 * a**5
                 goal = recover_from + a * (self.q_ready.numpy() - recover_from)
-                if a >= 1.0:
+                # The ball back above the paddle and falling (e.g. it left the overhead view and came down on the
+                # blade): play again once the arm is most of the way back to ready.
+                again = (a > 0.5 and tracked and float(ctrl.age[0]) < 0.1 and v[2] < 0 and
+                         p[2] > self.task.hit_z + 0.03 and np.hypot(*(p[:2] - np.array(self.task.target_xy))) < 0.12)
+                if again:
+                    state, state_since = "PLAY", now
+                    self.episodes += 1
+                    if self.policy:
+                        self.policy.reset()
+                elif a >= 1.0:
                     state, state_since = "WAIT", now
             prev_vz = float(v[2]) if tracked else 0.0
             # Safety.
@@ -203,12 +215,16 @@ def main() -> int:
     ap.add_argument("--cameras", nargs="+", default=["overhead", "wrist"])
     ap.add_argument("--seconds", type=float, default=120.0)
     ap.add_argument("--out", help="log directory (default measurements/runs/<time>, sim: sim/build/runs/<time>)")
+    ap.add_argument("--apex", type=float, help="scripted bouncer: bounce height above the hitting plane [m] "
+                    "(default: the task's 0.25; the overhead camera sees the ball up to ~0.2 m above the paddle)")
     ap.add_argument("--ball-gravity", type=float,
                     help="EXPERIMENT: gravity [m/s^2] the ball filter and the bouncer's predictor assume (default "
                          "9.81). Real runs predicted impacts ~28 ms early, as if the ball fell at ~8.7 m/s^2")
     args = ap.parse_args()
     torch.set_num_threads(1)
     policy_dir = None if args.scripted else Path(args.policy)
+    if policy_dir and args.apex is not None:
+        raise SystemExit("--apex changes the scripted bouncer the policy was trained on: use it with --scripted")
     task_id = json.loads((policy_dir / "policy.json").read_text())["task_id"] if policy_dir else "PingPong-Bounce-Residual"
 
     if args.sim:
@@ -245,7 +261,7 @@ def main() -> int:
         kin = ArmKinematics(session.model.m, prefix="", device="cpu")
         if "wrist" in calibs:
             apply_wrist_mount(kin, calibs["wrist"])
-        run = Run(session, cams, calibs, task_id, policy_dir, kin)
+        run = Run(session, cams, calibs, task_id, policy_dir, kin, apex=args.apex)
         cams.start()
         try:
             q_ready = np.array([READY_JOINT_POS[j] for j in JOINTS])

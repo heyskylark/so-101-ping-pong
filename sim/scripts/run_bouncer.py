@@ -61,6 +61,9 @@ def main() -> None:
                     help="wrist image long side across the blade (x) or along the blade normal (y, recommended)")
     ap.add_argument("--ideal-cameras", action="store_true",
                     help="no camera noise or randomization: exact calibration, fixed 30 ms latency")
+    ap.add_argument("--predictor-gravity", type=float,
+                    help="gravity [m/s^2] the ball filter and the impact predictor assume (the sim ball keeps 9.81): "
+                         "> 9.81 predicts impacts early, as the real rig did (~28 ms)")
     args = ap.parse_args()
     torch.manual_seed(args.seed)
     torch.set_grad_enabled(False)
@@ -69,6 +72,11 @@ def main() -> None:
     n = args.envs - args.envs % n_groups
     h = make_harness(num_envs=n, randomize=args.randomize)
     dev, m = h.sim.device, h.mj_model
+    if args.predictor_gravity is not None:
+        import pingpong_sim.ball_filter as ball_filter_mod
+        import pingpong_sim.bouncer as bouncer_mod
+
+        ball_filter_mod.G = bouncer_mod.G = args.predictor_gravity
     cfg = BouncerCfg(apex=args.apex, feedforward=not args.no_feedforward)
     kin = ArmKinematics(m, device=dev)
     ids, _ = h.robot.find_joints(ARM_JOINTS, preserve_order=True)

@@ -142,10 +142,17 @@ Why each step exists:
 moves to the ready pose, then runs at 100 Hz: encoders and ball detections go through the same controller code as
 training (filter, impact prediction, scripted bouncer, observation layout from `policy.json`) into the ONNX policy.
 The arm holds ready until the ball is tracked above the paddle (held or dropped), plays until the ball is lost, low
-or more than 25 cm away, then returns to ready and waits for the next ball. Goals are limited to 0.15 rad per tick
+or more than 25 cm away, then returns to ready and waits for the next ball; a ball tracked back above the blade and
+falling once the return is half done is played again. A ball lying still on the paddle is never played (training
+starts every episode from a falling ball): drop it. Goals are limited to 0.15 rad per tick
 and kept off the table (blade ≥ 12 cm up) and below 45° of tilt; the watchdog stops on a stuck joint, heat or low
 supply. `--sim` runs the same loop against the simulated arm, ball and cameras: work per tick is ~2.5 ms median,
 ~5 ms p99 on this PC, inside the 10 ms tick with the bus I/O.
+
+Scripted-bouncer options (the policy was trained on the defaults): `--apex` (bounce height above the hitting plane;
+the overhead camera, ~0.51 m up, loses the ball above ~0.2 m; below ~0.2 m the stroke and follow-through no longer
+fit between bounces, sim: 0.12 m keeps under 1 % of balls). `--ball-gravity` is an experiment: the gravity the ball
+filter and the impact predictor assume (real runs predicted impacts ~28 ms early).
 
 ## Safety
 
