@@ -51,6 +51,9 @@ class BouncerCfg:
     stroke_joint: int = 2  # elbow_flex
     lead: float | None = None  # s, goals are evaluated this far ahead of the plan (None: the tracking model's delay)
     lock: float = 0.03  # s, no replanning this close to the stroke start
+    # s, added to every predicted impact time. Real rig 2026-11-09: predictions 19-28 ms early (replayed logs) with
+    # the arm on its plan -> +0.025; the sim servo lags its plan ~10-20 ms, where early predictions helped.
+    impact_bias: float = 0.0
     follow: float = 0.15  # s, follow-through back to the ready pose after impact
     min_approach: float = 0.04  # s, shortest approach segment
     predict_dt: float = 0.02  # s, RK4 flight steps (crossing time by interpolation: ~0.2 ms error)
@@ -186,7 +189,7 @@ class ScriptedBouncer:
         t_cmd = now + self.lead
         q_c, qd_c, _ = self.evaluate(t_cmd)
         dt_hit, p_in, v_in = prediction if prediction is not None else self.predict(ball_p, ball_v)
-        t_hit = (now if obs_time is None else obs_time) + dt_hit
+        t_hit = (now if obs_time is None else obs_time) + dt_hit + cfg.impact_bias
         # Refine during the approach (until `lock` before the stroke); start a new plan once the follow-through is
         # done; never during the stroke or the follow-through.
         approaching = t_cmd < self.t_hit - self.Ts - cfg.lock

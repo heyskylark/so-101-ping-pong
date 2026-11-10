@@ -482,6 +482,13 @@ drifting** parameters (this paddle's restitution, latency, backlash, sag), which
          the feedforward goal, not the plan. So the impact prediction (19–28 ms early) is what's wrong on the rig;
          the sim servo lags its plan ~10–20 ms, which masks the same early prediction in sim. Shorter strokes
          (0.10 / 0.08 s) track worse on the real arm (gain 0.73, corr 0.45; sim 1.00, 0.85).
+       - Servo model refit with the strokes (`fit_2026-11-10_093618`): held-out stroke RMS lift/elbow/flex
+         0.67/0.79/0.43 → 0.54/0.66/0.37°, but the sim servo still lags its plan ~10 ms (real: 0), tracks more
+         cleanly (corr 0.85 vs 0.68) and gives short strokes more speed (gain 0.91 vs 0.73). Sim, refit servo, 256 ×
+         20 s: 0.25 m 26 %, 0.15 m with stroke 0.10 / follow 0.08 37 %; with impacts predicted early (filter gravity
+         11) 45 % / 65 %: in sim early strikes *help* (the arm lags), on the rig they hurt (the arm is on time). The
+         stroke-to-ball timing differs between sim and rig: `BouncerCfg.impact_bias` (s, added to every predicted
+         impact; rig ~+0.025, from the replays), `run_robot.py --impact-bias`; training should randomize it.
        - Sim, scripted, 256 worlds × 20 s, randomized servos, 30 ms latency: baseline 31 % still bouncing; impacts
          predicted early (filter gravity 11) 24 %; holding the hitting speed ±40 ms ("cruise") 1.6 % (dropped);
          apex 0.12 m 0–0.4 % (follow-through + approach + stroke no longer fit between bounces).

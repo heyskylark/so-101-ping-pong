@@ -124,14 +124,16 @@ def load_calibs(names: list[str]) -> tuple[dict[str, CameraCalib], list[str]]:
 
 class Run:
     def __init__(self, session: ArmSession, cameras, calibs: dict[str, CameraCalib], task_id: str,
-                 policy_dir: Path | None, kin: ArmKinematics, apex: float | None = None, pop: float | None = None):
+                 policy_dir: Path | None, kin: ArmKinematics, apex: float | None = None, pop: float | None = None,
+                 bouncer: dict | None = None):
         self.s, self.cams, self.calibs = session, cameras, calibs
         task = load_env_cfg(task_id).events["reset_episode"].params["task"]
         self.task = task
         self.kin = kin
         self.q_ready = torch.tensor([READY_JOINT_POS[j] for j in ARM_JOINTS])
         ccfg = task.controller_cfg()
-        ccfg = replace(ccfg, apex=apex if apex is not None else ccfg.apex)
+        ccfg = replace(ccfg, apex=apex if apex is not None else ccfg.apex,
+                       bouncer=replace(ccfg.bouncer, **(bouncer or {})))
         self.ctrl = BounceController(ccfg, kin, self.q_ready, 1, 1.0 / RATE, "cpu")
         self.policy = OnnxPolicy(policy_dir, self.ctrl) if policy_dir else None
         self.pop = pop_goals(kin, self.q_ready.numpy(), pop)[0] if pop else None  # pop test: never plays
@@ -282,14 +284,21 @@ def main() -> int:
                          "[m/s] (face level, brakes harder than g), again each time it settles: clean free flights")
     ap.add_argument("--apex", type=float, help="scripted bouncer: bounce height above the hitting plane [m] "
                     "(default: the task's 0.25; the overhead camera sees the ball up to ~0.2 m above the paddle)")
+    ap.add_argument("--stroke-time", type=float, help="scripted bouncer: stroke time [s] (default 0.12)")
+    ap.add_argument("--follow", type=float, help="scripted bouncer: follow-through time [s] (default 0.15)")
+    ap.add_argument("--impact-bias", type=float, help="scripted bouncer: added to every predicted impact time [s] "
+                    "(real runs: predictions 19-28 ms early -> ~0.025)")
     ap.add_argument("--ball-gravity", type=float,
                     help="EXPERIMENT: gravity [m/s^2] the ball filter and the bouncer's predictor assume (default "
                          "9.81). Real runs predicted impacts ~28 ms early, as if the ball fell at ~8.7 m/s^2")
     args = ap.parse_args()
     torch.set_num_threads(1)
     policy_dir = None if args.scripted or args.pop else Path(args.policy)
-    if policy_dir and args.apex is not None:
-        raise SystemExit("--apex changes the scripted bouncer the policy was trained on: use it with --scripted")
+    bouncer = {k: v for k, v in (("stroke_time", args.stroke_time), ("follow", args.follow),
+                                 ("impact_bias", args.impact_bias)) if v is not None}
+    if policy_dir and (args.apex is not None or bouncer):
+        raise SystemExit("--apex/--stroke-time/--follow/--impact-bias change the scripted bouncer the policy was "
+                         "trained on: use them with --scripted")
     task_id = json.loads((policy_dir / "policy.json").read_text())["task_id"] if policy_dir else "PingPong-Bounce-Residual"
 
     if args.sim:
@@ -326,7 +335,7 @@ def main() -> int:
         kin = ArmKinematics(session.model.m, prefix="", device="cpu")
         if "wrist" in calibs:
             apply_wrist_mount(kin, calibs["wrist"])
-        run = Run(session, cams, calibs, task_id, policy_dir, kin, apex=args.apex, pop=args.pop)
+        run = Run(session, cams, calibs, task_id, policy_dir, kin, apex=args.apex, pop=args.pop, bouncer=bouncer)
         if run.pop is not None:
             b = PlanBuilder(np.array([READY_JOINT_POS[j] for j in JOINTS]))
             b.add(run.pop, name="pop")
