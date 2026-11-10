@@ -577,19 +577,33 @@ def cmd_timing(args) -> int:
     name = args.camera
     calib = CameraCalib.load(name)
     arm = ArmCalib.load()
-    links = Links(ArmModel().m)
+    model = ArmModel()
+    links = Links(model.m)
+
+    def wave_clear(q: np.ndarray) -> bool:
+        """The wave around q keeps the payload >= 4 cm above the table (the arm's own check wants 2) and the blade
+        clear of the arm."""
+        for qq in wave(q, args.seconds)[::10]:
+            model.forward(qq)
+            if model.clearance() < 0.04 or model.blade_hits():
+                return False
+        return True
+
     if name == "overhead":
         if calib.R is None or arm.tag_R is None:
             raise SystemExit("run `calibrate.py overhead` first")
         det = TagDetector()
         R_wc, p_wc = np.array(calib.R), np.array(calib.p)
         R_lt, p_lt = np.array(arm.tag_R), np.array(arm.tag_p)
-        poses = np.array(arm.steps["overhead"]["poses"])
-        # The pose whose tag is nearest the image centre.
+        poses = np.array(arm.steps["overhead"]["poses"]) + np.array(arm.joint_offsets)  # raw -> true angles
+        # The pose whose tag is nearest the image centre, of those whose wave stays clear of the table.
         centre = np.array([calib.width / 2, calib.height / 2])
-        q0 = poses[int(np.argmin([np.linalg.norm(project(calib.Km, calib.Dm, R_wc, p_wc, _tag(links, q + np.array(
-            arm.joint_offsets), R_lt, p_lt, det.object_points)).mean(0) - centre) for q in poses]))]
-        q0 = q0 + np.array(arm.joint_offsets)
+        order = np.argsort([np.linalg.norm(project(calib.Km, calib.Dm, R_wc, p_wc, _tag(
+            links, q, R_lt, p_lt, det.object_points)).mean(0) - centre) for q in poses])
+        safe = [poses[i] for i in order if wave_clear(poses[i])]
+        if not safe:
+            raise SystemExit("no overhead-step pose has room for the wave above the table")
+        q0 = safe[0]
 
         def predict(q, extra, k):
             return project(calib.Km, calib.Dm, R_wc, p_wc, _tag(links, q, R_lt, p_lt, det.object_points))
@@ -599,19 +613,25 @@ def cmd_timing(args) -> int:
         det = BoardDetector(min_corners=8)
         R_lc, p_lc = np.array(calib.R), np.array(calib.p)
         m = calib.steps["mount"]
-        q0 = np.array(m["pose_q"])[0]
+        safe = [q for q in np.array(m["pose_q"]) if wave_clear(q)]
+        if not safe:
+            raise SystemExit("no wrist-step pose has room for the wave above the table")
+        q0 = safe[0]
     cam = start_camera(name, det)
     rows: list[tuple[float, np.ndarray]] = []
     try:
         with ArmSession(open_bus(args.port), joint_offsets=arm.joint_offsets) as s:
-            s.move_to(q0)
-            hold(s, 0.5)
-            motion = wave(s.read().q, args.seconds)
-            b = PlanBuilder(motion[0])
+            # Check the whole thing (there, the wave, back) before moving at all.
+            motion = wave(s.clamp(q0), args.seconds)
+            b = PlanBuilder(s.read().q)
+            b.move(motion[0], name="from_start")
             b.add(motion, name="wave")
+            b.move(s.start, name="to_start")
             problems = s.check(b.build())
             if problems:
-                raise SystemExit("wave check failed:\n  " + "\n  ".join(problems))
+                raise SystemExit("wave check failed (the arm didn't move):\n  " + "\n  ".join(problems))
+            s.move_to(motion[0])
+            hold(s, 0.5)
             cam.drain()
             s.follow(motion, on_tick=lambda k, g, r: rows.append((r.t, r.q)))
             dets = cam.drain()

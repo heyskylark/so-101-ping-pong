@@ -4,8 +4,9 @@ session that restores the servos when it ends.
 
 `ArmSession` (a context manager) on enter: identifies the servos, loads the joint map, writes the ping-pong gain
 profile (robot.FIRMWARE_P, I = 0, D = 0, Acceleration 0) and enables torque holding the current pose. On exit:
-after Ctrl-C or a watchdog abort it returns slowly to the pose it started from; then torque off and the previous
-gains restored. A second Ctrl-C within the return cuts torque at once (the arm drops).
+after Ctrl-C, a watchdog abort or a script's own SystemExit (a failed check: the arm is fine) it returns slowly to
+the pose it started from; then torque off and the previous gains restored. A second Ctrl-C within the return cuts
+torque at once (the arm drops); any other error cuts torque at once too.
 
 Angles are the sim convention. With calibrated joint offsets (overhead calibration), session angles are true angles:
 the servos are sent `true - offsets` through the joint map.
@@ -324,6 +325,7 @@ class ArmSession:
             raise KeyboardInterrupt
         if now - self._sigint[0] > 1.0:
             self.bus.torque(False)
+            self.torque_on = False
             print("\nsecond Ctrl-C: torque off")
             raise SystemExit(130)
 
@@ -332,8 +334,9 @@ class ArmSession:
         handled = exc_type in (Abort, KeyboardInterrupt)
         if exc_type is None:
             self.status = "complete"
-        elif handled:
-            self.status = f"aborted: {exc}" if exc_type is Abort else "aborted: Ctrl-C"
+        elif handled or exc_type is SystemExit:  # SystemExit: the script stopped on purpose (a failed check)
+            self.status = (f"aborted: {exc}" if exc_type is Abort else "aborted: Ctrl-C" if handled
+                           else f"stopped: {exc}")
             if self.torque_on:
                 print(f"\n{self.status} -> returning to the start pose")
                 try:
