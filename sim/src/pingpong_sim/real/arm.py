@@ -386,9 +386,10 @@ class ArmSession:
         return np.clip(q, lo, hi)
 
     def command(self, q: np.ndarray) -> np.ndarray:
-        """Send goals (true angles), clamped; returns what was sent."""
+        """Send goals (true angles), clamped; returns what was sent (bus time of the write in `t_cmd`)."""
         q = self.clamp(np.asarray(q, float))
         self.bus.write_goal(self.map.to_raw(q - self.offsets))
+        self.t_cmd = self.bus.now()
         return q
 
     def guard(self, goal: np.ndarray, r: Reading, max_error: float = WATCHDOG["error"]) -> None:

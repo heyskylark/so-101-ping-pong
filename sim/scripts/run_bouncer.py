@@ -44,7 +44,8 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--envs", type=int, default=512)
     ap.add_argument("--seconds", type=float, default=20.0)
-    ap.add_argument("--lead", type=float, nargs="+", default=[0.0])
+    ap.add_argument("--lead", type=float, nargs="+", default=None,
+                    help="s, plan look-ahead per group (default: the tracking model's delay)")
     ap.add_argument("--apex", type=float, default=0.25)
     ap.add_argument("--drop", type=float, default=0.30, help="ball release height above the hitting plane [m]")
     ap.add_argument("--randomize", action="store_true")
@@ -68,6 +69,12 @@ def main() -> None:
     torch.manual_seed(args.seed)
     torch.set_grad_enabled(False)
 
+    if args.lead is None:
+        import json
+
+        from pingpong_sim.bouncer import TRACKING_MODEL
+
+        args.lead = [float(json.loads(TRACKING_MODEL.read_text()).get("delay_s", 0.0))]
     n_groups = len(args.lead)
     n = args.envs - args.envs % n_groups
     h = make_harness(num_envs=n, randomize=args.randomize)

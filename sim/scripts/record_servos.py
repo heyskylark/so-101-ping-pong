@@ -20,6 +20,13 @@ Plan, at three level-blade poses (blade centre 0.40/0.25, 0.35/0.20, 0.45/0.30 m
 holding: steps of 3 sizes both ways (delay, speed under load, overshoot), slow reversals (friction, backlash) and
 a 0.3-5 Hz chirp (bandwidth); then 20 s of bounce-like multi-joint motion. Logs: goal and present position,
 velocity, load, current, voltage, temperature, host timestamps of each command and read.
+
+  uv run scripts/record_servos.py strokes --port /dev/ttyACM0   # ~40 s, no ball
+
+`strokes` runs the scripted bouncer's own strokes for imaginary balls (dropped on the paddle, then bounced ideally
+to 0.25 / 0.20 / 0.15 m at the centre and +-4 cm), with the joint offsets of the calibration, and logs the bouncer's
+plan, the feedforward goal sent and the response (true angles): the fast stroke regime the slower recordings above
+don't reach (real bounces: paddle peak at ~60 % of the commanded speed, later than the model).
 """
 
 from __future__ import annotations
@@ -34,8 +41,8 @@ from pathlib import Path
 
 import numpy as np
 
-from pingpong_sim.real.arm import (JOINT_MAP, RATE, V_RETREAT, WATCHDOG, Abort, ArmModel, Plan, PlanBuilder, Watchdog,
-                                   check_plan, gain_profile, open_bus)
+from pingpong_sim.real.arm import (JOINT_MAP, RATE, V_RETREAT, WATCHDOG, Abort, ArmModel, ArmSession, Plan,
+                                   PlanBuilder, Watchdog, check_plan, gain_profile, open_bus)
 from pingpong_sim.robot import READY_JOINT_POS
 from pingpong_sim.servo_bus import JOINTS, RAD_PER_TICK, JointMap, SimBus
 
@@ -343,9 +350,121 @@ def cmd_map(args) -> int:
     return 0
 
 
+STROKE_SERIES = [(apex, dx, dy) for apex in (0.25, 0.20, 0.15) for dx, dy in ((0.0, 0.0), (0.04, 0.0), (-0.04, 0.0),
+                                                                             (0.0, 0.04), (0.0, -0.04))]
+STROKE_BOUNCES = 5
+
+
+def stroke_series(kin_t, q_ready: np.ndarray, apex: float, dx: float, dy: float):
+    """The scripted bouncer's goals for one imaginary ball: dropped from 0.25 m above the hitting plane at
+    target + (dx, dy), then bounced ideally (to `apex`, steered back as the bouncer intends) STROKE_BOUNCES times.
+    Returns feedforward goals and the bouncer's kinematic plan (N, 5) at RATE, and the impact times."""
+    import torch
+
+    from pingpong_sim.ball import BALL_RADIUS
+    from pingpong_sim.ball_filter import flight_np
+    from pingpong_sim.bouncer import BouncerCfg, ScriptedBouncer, apex_speed
+    from pingpong_sim.ball import G
+
+    cfg = BouncerCfg(apex=apex)
+    b = ScriptedBouncer(cfg, kin_t, torch.tensor(q_ready, dtype=torch.float32), 1)
+    b.reset(torch.zeros(1, dtype=torch.long), 0.0)
+    tgt = np.array(cfg.target_xy)
+    z_ball = cfg.hit_z + BALL_RADIUS
+    p = np.array([tgt[0] + dx, tgt[1] + dy, z_ball + 0.25])
+    v = np.zeros(3)
+    dt = 1.0 / RATE
+    goals, plan, impacts = [], [], []
+    t = 0.0
+    while len(impacts) < STROKE_BOUNCES or t < impacts[-1] + cfg.follow + 0.3:
+        g = b.step(t, torch.tensor(p, dtype=torch.float32)[None], torch.tensor(v, dtype=torch.float32)[None])
+        goals.append(g[0].numpy().astype(float))
+        plan.append(b.evaluate(torch.tensor([t]))[0][0].numpy().astype(float))
+        pn, vn = flight_np(p, v, dt)
+        if len(impacts) < STROKE_BOUNCES and p[2] >= z_ball > pn[2] and vn[2] < 0:
+            impacts.append(t + dt * (p[2] - z_ball) / max(p[2] - pn[2], 1e-9))
+            vo = apex_speed(apex)
+            pn = np.array([pn[0], pn[1], z_ball])
+            vn = np.array([*(cfg.steer_gain * (tgt - pn[:2]) / (2 * vo / G)), vo])
+        elif len(impacts) >= STROKE_BOUNCES and pn[2] < z_ball:
+            pn, vn = np.array([5.0, 0.0, 0.0]), np.zeros(3)  # gone: the bouncer finishes its follow-through
+        p, v = pn, vn
+        t += dt
+        if t > 15.0:
+            raise RuntimeError(f"stroke series apex {apex} ({dx}, {dy}) did not finish")
+    return np.array(goals), np.array(plan), impacts
+
+
+def cmd_strokes(args) -> int:
+    from pingpong_sim.kinematics import ArmKinematics
+    from pingpong_sim.real.camera_model import ArmCalib
+
+    offsets = None if args.sim else np.array(ArmCalib.load().joint_offsets)
+    bus = make_bus(args)
+    model = ArmModel()
+    kin_t = ArmKinematics(model.m, prefix="", device="cpu")
+    q_ready = np.array([READY_JOINT_POS[j] for j in JOINTS])
+    goals, plans, seg, segments, impacts = [], [], [], [], []
+    for i, (apex, dx, dy) in enumerate(STROKE_SERIES):
+        g, pl, imp = stroke_series(kin_t, q_ready, apex, dx, dy)
+        hold = np.repeat(q_ready[None], int(1.0 * RATE), axis=0)
+        g, pl = np.concatenate([hold, g]), np.concatenate([hold, pl])
+        n0 = sum(len(x) for x in goals)
+        segments.append(dict(name=f"strokes/apex{apex:.2f}/{dx:+.2f},{dy:+.2f}", kind="strokes", pose="ready",
+                             apex=apex, dx=dx, dy=dy, start=n0, n=len(g)))
+        impacts += [n0 / RATE + 1.0 + x for x in imp]
+        goals.append(g)
+        plans.append(pl)
+        seg.append(np.full(len(g), i))
+    goals, plans, seg = np.concatenate(goals), np.concatenate(plans), np.concatenate(seg)
+    print(f"{len(STROKE_SERIES)} series, {len(impacts)} strokes, {len(goals) / RATE:.0f} s")
+    log = {k: [] for k in ("t_cmd", "t_read", "goal", "pos", "vel", "load", "volt", "temp", "seg", "phase")}
+    status = "complete"
+    with ArmSession(bus, joint_offsets=offsets, confirm=not args.sim) as s:
+        b = PlanBuilder(s.read().q)
+        b.move(q_ready, name="from_start")
+        b.hold(1.0, name="settle")
+        b.add(goals, name="strokes")
+        b.move(s.start, name="to_start")
+        problems = s.check(b.build())
+        if problems:
+            raise SystemExit("stroke plan check failed (the arm didn't move):\n  " + "\n  ".join(problems))
+        print("plan check passed: joint and servo limits, payload above the table, blade clear of the arm")
+        s.move_to(q_ready)
+        t0 = s.bus.now()
+
+        def tick(k, goal, r):
+            for key, val in zip(log, (s.t_cmd - t0, r.t - t0, goal, r.q, r.dq, r.load, r.voltage, r.temperature,
+                                      seg[k], 0)):
+                log[key].append(val)
+
+        try:
+            s.follow(goals, on_tick=tick)
+        finally:
+            s.move_to(s.start)
+    arrays = {k: np.array(v) for k, v in log.items()}
+    stamp = dt.datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    out = Path(args.out) if args.out else (REPO / "sim" / "build" / "servo_dryrun" / f"{stamp}_strokes" if args.sim
+                                           else REPO / "measurements" / "servo" / f"{stamp}_strokes")
+    out.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(out / "log.npz", **arrays, plan_goal=goals, plan_q=plans, plan_seg=seg,
+                        impacts=np.array(impacts))
+    (out / "meta.json").write_text(json.dumps(dict(
+        backend="sim" if args.sim else "real", port=None if args.sim else args.port, status=status, rate_hz=RATE,
+        joints=JOINTS, angles="true (joint offsets added)", joint_offsets=offsets, segments=segments,
+        series=STROKE_SERIES, bounces=STROKE_BOUNCES, created=stamp), indent=1,
+        default=lambda o: o.tolist() if hasattr(o, "tolist") else str(o)) + "\n")
+    err = arrays["goal"] - arrays["pos"]
+    print(f"recorded {len(arrays['t_read'])} samples; supply {arrays['volt'].min():.1f}-{arrays['volt'].max():.1f} V, "
+          f"temperature max {arrays['temp'].max():.0f} C; |goal - pos| max per joint [deg] "
+          + ", ".join(f"{np.degrees(np.abs(err[:, i]).max()):.0f}" for i in range(5)))
+    print("saved", out)
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=("map", "record"))
+    ap.add_argument("command", choices=("map", "record", "strokes"))
     src = ap.add_mutually_exclusive_group(required=True)
     src.add_argument("--port", help="servo bus serial port, e.g. /dev/ttyACM0")
     src.add_argument("--sim", action="store_true", help="run against the MuJoCo Warp model")
@@ -353,7 +472,7 @@ def main() -> int:
     ap.add_argument("--d-gain", type=int, default=0,
                     help="firmware D for every joint (default 0, what BAM's fits assume; LeRobot uses 32)")
     args = ap.parse_args()
-    return cmd_map(args) if args.command == "map" else cmd_record(args)
+    return {"map": cmd_map, "record": cmd_record, "strokes": cmd_strokes}[args.command](args)
 
 
 if __name__ == "__main__":

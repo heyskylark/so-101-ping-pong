@@ -16,7 +16,8 @@ Every control step, per world:
    tilts a few degrees during the single-joint stroke but is on plan at impact. Before it, a cubic Hermite brings
    the arm from wherever it is to the cocked pose at rest; after impact, a follow-through returns it to ready.
 4. **Feedforward.** The servo goal inverts the identified tracking model (scripts/identify_tracking.py),
-   u = q_d + A^-1 (q_d'' + B q_d' - c), evaluated `lead` seconds ahead (the command delay; run_bouncer sweeps it).
+   u = q_d + A^-1 (q_d'' + B q_d' - c), evaluated `lead` seconds ahead (the command delay: by default the tracking
+   model's own `delay_s`, 0 for the nominal one; run_bouncer sweeps it).
 
 Replanning refines the approach until `lock` seconds before the stroke starts; the stroke itself is never changed.
 """
@@ -48,7 +49,7 @@ class BouncerCfg:
     max_tilt_deg: float = 20.0
     stroke_time: float = 0.12  # s, constant-acceleration stroke ending at impact
     stroke_joint: int = 2  # elbow_flex
-    lead: float = 0.0  # s, goals are evaluated this far ahead of the plan (0 is the robust choice with noise)
+    lead: float | None = None  # s, goals are evaluated this far ahead of the plan (None: the tracking model's delay)
     lock: float = 0.03  # s, no replanning this close to the stroke start
     follow: float = 0.15  # s, follow-through back to the ready pose after impact
     min_approach: float = 0.04  # s, shortest approach segment
@@ -82,11 +83,12 @@ class ScriptedBouncer:
         dev = q_ready.device
         self.n, self.dev = num_envs, dev
         self.q_ready = q_ready.expand(num_envs, 5).clone()
-        self.lead = lead if lead is not None else torch.full((num_envs,), cfg.lead, device=dev)
+        tm = json.loads(TRACKING_MODEL.read_text())
+        lead_s = cfg.lead if cfg.lead is not None else float(tm.get("delay_s", 0.0))
+        self.lead = lead if lead is not None else torch.full((num_envs,), lead_s, device=dev)
         self.target = torch.tensor(cfg.target_xy, device=dev)
         self.z_ball = cfg.hit_z + BALL_RADIUS
         self.vz_out = apex_speed(cfg.apex)
-        tm = json.loads(TRACKING_MODEL.read_text())
         self.A_inv = torch.linalg.inv(torch.tensor(tm["A"], device=dev))
         self.B = torch.tensor(tm["B"], device=dev)
         self.c = torch.tensor(tm["c"], device=dev)
