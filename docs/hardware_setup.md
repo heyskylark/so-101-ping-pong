@@ -116,8 +116,14 @@ to `sim/build/snapshots/` with the paddle face's pixel position, and returns. Pl
 | 6 | `uv run scripts/arm_pose.py ready --port /dev/ttyACM0 --hold 60`, ruler from the table to the paddle top face's centre, then `uv run scripts/calibrate.py lift --paddle-height-cm <cm>`; then `calibrate.py table` (check) and `calibrate.py wrist --port /dev/ttyACM0` | measure while the arm holds ready; for `table`/`wrist`: board flat on the table, printed side up, ~35–50 cm in front of the base, long side across, taped down; `table` only reads the overhead camera; the arm then rolls the paddle over and looks down at the board in 24 poses planned around where the overhead camera measured it | `lift`: the shoulder-lift offset (the overhead fit can't see it: it trades off against the camera's pitch; here it was ~10°), the overhead pose refitted with it; `table`: the board's tilt and height as a check (the table vs the base); `wrist`: the wrist camera mount, each pose's arm-vs-camera disagreement |
 | 7 | `uv run scripts/calibrate.py gravity --port /dev/ttyACM0` | toss the ball gently 10–20 cm above the paddle without touching it, 10–15 times; recordings pool | a check of the lift offset (gravity straight down), each camera's ball-size scale; both cameras triangulate the flights |
 | 8 | `uv run scripts/calibrate.py timing overhead --port ...`, then `timing wrist` (board untouched since step 6), then `gravity --port ... --no-lift` | the arm waves the paddle for 12 s; then tosses as in step 7 | timestamp offsets and rolling-shutter readout; final check: gravity tilts < 0.5° |
-| 9 | `uv run scripts/run_robot.py --port /dev/ttyACM0 --scripted --seconds 60` | hold the ball above the paddle and let go | the scripted bouncer alone: a first test of the whole loop |
-| 10 | `uv run scripts/run_robot.py --port /dev/ttyACM0 --policy policies/residual_v1` | same | the trained policy; logs in `measurements/runs/<time>/` |
+| 9 | `uv run scripts/calibrate.py static --port /dev/ttyACM0 --free` (`--refit`: report again) | set the ball on the blade centre at each height the arm stops at (default 25, 28, 31, 34 cm), hands out of the picture; then, blade away, the ball on a support at a few heights, typing the ruler reading to the ball's top | per camera: position error and true / size-based range on the blade vs on a support. A range error only on the blade means blade pixels join the ball's blob; one that changes with distance means the size measurement does |
+| 10 | `uv run scripts/run_robot.py --port /dev/ttyACM0 --scripted --seconds 60` | hold the ball above the paddle and let go | the scripted bouncer alone: a first test of the whole loop |
+| 11 | `uv run scripts/run_robot.py --port /dev/ttyACM0 --policy policies/residual_v1` | same | the trained policy; logs in `measurements/runs/<time>/` |
+
+After changing the paddle (flipped, re-taped tag, new rubber): redo `cameras.py color` and `cameras.py mask` for
+both cameras (the wrist camera's ignore mask holds the blade edge it sees), then steps 5 (the tag fit finds the tag
+anywhere on the back face), 6 (`lift`, `wrist`), 8 and 9. The ball's restitution off the new hitting rubber needs
+re-measuring too (`BallFilterCfg.restitution`, `BouncerCfg.restitution`: 0.58 on the red side).
 
 Why each step exists:
 

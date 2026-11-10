@@ -11,6 +11,8 @@ Order (from sim/; the arm steps need the joint map and the camera devices in rig
   uv run scripts/calibrate.py timing overhead --port /dev/ttyACM0
   uv run scripts/calibrate.py timing wrist --port /dev/ttyACM0   # board where it stood for `wrist`
   uv run scripts/calibrate.py gravity --port /dev/ttyACM0   # drop the ball a few times: checks the whole chain
+  uv run scripts/calibrate.py static --port /dev/ttyACM0 --free   # ball resting on the blade, then on a support:
+                                                            # each camera's position / range-from-size errors
 
 Results: measurements/calibration/camera_<name>.json, arm.json; raw data of each step in
 measurements/calibration/raw/<time>_<step>.npz. Targets (TODO.md): overhead pose <= 3 mm / 0.3 deg, wrist mount
@@ -31,7 +33,6 @@ import numpy as np
 import torch
 
 from pingpong_sim.camera_sim import OVERHEAD
-from pingpong_sim.controller import ArmHistory
 from pingpong_sim.kinematics import ArmKinematics
 from pingpong_sim.real.arm import RATE, ArmModel, ArmSession, PlanBuilder, open_bus
 from pingpong_sim.real.calib_solve import (
@@ -58,6 +59,7 @@ from pingpong_sim.real.calib_solve import (
 from pingpong_sim.real.camera_model import CALIB_DIR, ArmCalib, CameraCalib, apply_wrist_mount, nominal, to_measurements
 from pingpong_sim.real.cameras import MAX_BALL_PX, MIN_BALL_PX, BallCameras, RigConfig, UvcCamera
 from pingpong_sim.real.targets import SPEC, BoardDetector, TagDetector, load_spec
+from pingpong_sim.ball import BALL_RADIUS
 from pingpong_sim.robot import READY_JOINT_POS
 from pingpong_sim.servo_bus import JOINTS
 
@@ -794,25 +796,38 @@ def split_arcs(t: np.ndarray, X: np.ndarray, min_points: int = 6, min_s: float =
     return arcs
 
 
+class EncoderPoses:
+    """The wrist camera's pose at any time of a recording, for `to_measurements`: encoder angles interpolated at that
+    time, then forward kinematics. (An ArmHistory holds only the last 0.32 s and assumes evenly spaced ticks: fed a
+    whole recording first, it gave every detection the pose at the end.)"""
+
+    def __init__(self, kin: ArmKinematics, enc_t: np.ndarray, enc_q: np.ndarray):
+        self.kin, self.t, self.q = kin, np.asarray(enc_t, float), np.asarray(enc_q, float)
+
+    def at(self, t: torch.Tensor, keys=None) -> dict[str, torch.Tensor]:
+        tt = float(t[0])
+        q = torch.tensor([[np.interp(tt, self.t, self.q[:, j]) for j in range(self.q.shape[1])]], dtype=torch.float32)
+        R, p = self.kin.wrist_camera(q)
+        return {"wR": R, "wp": p}
+
+
 def gravity_measurements(dets: np.ndarray, cams: list[str], enc_t: np.ndarray, enc_q: np.ndarray,
                          calibs: dict[str, CameraCalib], model) -> dict[str, np.ndarray]:
     """Raw detections (N, 5: camera index, stamp, u, v, d; times on the encoder clock) of the cameras in `calibs`
     -> measurement arrays t, R, p, z, sigma, cam (index into list(calibs)), sorted by time; wrist poses from the
-    encoder log through the arm model."""
+    encoder log (interpolated at each capture time) through the arm model."""
     from pingpong_sim.real.camera_model import PixelDetection
 
     kin = ArmKinematics(model, prefix="")
     if "wrist" in calibs:
         apply_wrist_mount(kin, calibs["wrist"])
-    hist = ArmHistory(kin, 1, 1 / RATE, "cpu")
-    for t, q in zip(enc_t, enc_q):
-        hist.push(float(t), torch.tensor(q, dtype=torch.float32)[None])
+    poses = EncoderPoses(kin, enc_t, enc_q)
     parts = []
     for ci, name in enumerate(calibs):
         pix = [PixelDetection(name, *map(float, r[1:])) for r in dets if cams[int(r[0])] == name]
         if not pix:
             continue
-        m = to_measurements(pix, {name: calibs[name]}, hist.hist)
+        m = to_measurements(pix, {name: calibs[name]}, poses)
         part = {k: m[k][:, 0].numpy().astype(float) for k in ("t", "R", "p", "z", "sigma")}
         part["cam"] = np.full(len(part["t"]), ci)
         parts.append(part)
@@ -995,6 +1010,119 @@ def lift_from_gravity(arm: ArmCalib, overhead: CameraCalib, dets, names, enc_t, 
     print(f"lift offset from gravity: {np.degrees(lift):+.2f} deg (camera refitted: {np.round(f['p'], 3).tolist()} m, "
           f"RMS {f['rms_px']:.2f} px)")
     return lift, f
+
+
+STATIC_X = 0.40  # m, blade centre over the bounce target
+
+
+def cmd_static(args) -> int:
+    """Resting-ball check of each camera's ball position, especially the range from the apparent size: the ball
+    rests on the level blade at several heights (true centre from the arm's kinematics), then, with `--free`, sits
+    on a support you measure (true height from the ruler; the blade is out of the picture). Separates a range error
+    that depends on distance (the colour mask's fringe matters more on a smaller blob) from one that only shows
+    with the blade under the ball (blade pixels joining the blob)."""
+    arm = ArmCalib.load()
+    names = [n for n in ("overhead", "wrist") if CameraCalib.path(n).exists() and CameraCalib.load(n).R is not None]
+    if not args.refit:
+        model = ArmModel()
+        cams = BallCameras(RigConfig.load(), names)
+        enc, dets, segs = [], [], []
+        with ArmSession(open_bus(args.port), joint_offsets=arm.joint_offsets) as s:
+            t0 = s.bus.now()
+
+            def record(q, kind, value):
+                t_a = s.bus.now() - t0
+                cams.drain()
+
+                def tick(k, goal, r):
+                    enc.append((r.t - t0, r.q - np.asarray(arm.joint_offsets)))
+                    dets.extend(cams.drain())
+
+                s.follow(np.repeat(q[None], int(args.seconds * RATE), axis=0), on_tick=tick)
+                segs.append((t_a, s.bus.now() - t0, kind, value))
+
+            cams.start()
+            try:
+                seed = Q_READY
+                for h in args.heights:
+                    q = model.ik(STATIC_X, h, seed)
+                    seed = q
+                    s.move_to(q)
+                    input(f"blade level at {100 * h:.1f} cm: set the ball on the blade centre, let it settle, hands "
+                          "out of the picture, then Enter ")
+                    record(q, 0, h)
+                    print(f"  recorded {args.seconds:.0f} s")
+                if args.free:
+                    s.move_to(s.start)
+                    print("Blade away. Now the ball on a support (a cup, a tube) under the overhead camera, around "
+                          "where the blade was, at different heights; measure from the table to the ball's top.")
+                    while (ans := input("ball top above the table [cm] (blank: done): ").strip()):
+                        record(s.read().q, 1, float(ans) / 100 - BALL_RADIUS)
+                        print(f"  recorded {args.seconds:.0f} s")
+            finally:
+                cams.stop()
+            s.move_to(s.start)
+        save_raw("static", cameras=np.array(names), enc_t=np.array([e[0] for e in enc]),
+                 enc_q=np.array([e[1] for e in enc]), segments=np.array(segs).reshape(-1, 4),
+                 dets=np.array([(names.index(d.camera), d.stamp - t0, d.u, d.v, d.d) for d in dets]).reshape(-1, 5))
+    paths = sorted(RAW.glob("*_static.npz"))
+    if not paths:
+        raise SystemExit("no static recording yet")
+    report_static(np.load(paths[-1]), arm)
+    return 0
+
+
+def report_static(z, arm: ArmCalib) -> None:
+    names = [str(n) for n in z["cameras"]]
+    calibs = {n: CameraCalib.load(n) for n in names}
+    model = ArmModel()
+    enc_t, enc_q = z["enc_t"], z["enc_q"] + np.array(arm.joint_offsets)
+    m = gravity_measurements(z["dets"], names, enc_t, enc_q, calibs, model.m)
+    u = np.concatenate([m["z"][:, :2], np.ones((len(m["t"]), 1))], 1)
+    u /= np.linalg.norm(u, axis=1, keepdims=True)
+    d = np.einsum("nij,nj->ni", m["R"], u)  # world ray directions
+    rng = BALL_RADIUS / np.sin(m["z"][:, 2] / 2)  # range from the apparent size (size_scale applied)
+    det_t, det_cam, det_px = z["dets"][:, 1], np.array([names[int(i)] for i in z["dets"][:, 0]]), z["dets"][:, 4]
+    print("per segment and camera: detections, ball diameter [px], true / size-based range, position error "
+          "measured - true [mm] (x, y, z), ray direction error [deg]")
+    rows = []
+    for t_a, t_b, kind, value in z["segments"]:
+        w_enc = (enc_t > t_a + 0.5) & (enc_t < t_b)
+        lab = f"blade at {100 * value:.1f} cm" if kind == 0 else f"support, centre at {100 * value:.1f} cm"
+        if kind == 0:
+            cs = []
+            for q in enc_q[w_enc]:
+                model.forward(q)
+                cs.append(model.d.site_xpos[model.face] + BALL_RADIUS * model.d.site_xmat[model.face].reshape(3, 3)[:, 2])
+            c_true = np.median(cs, axis=0)
+        for ci, name in enumerate(calibs):
+            sel = (m["cam"] == ci) & (m["t"] > t_a + 0.5) & (m["t"] < t_b)
+            if sel.sum() < 5:
+                print(f"  {lab:28s} {name:8s}: {sel.sum()} detections")
+                continue
+            p_cam, dd, r_m = m["p"][sel], d[sel], rng[sel]
+            d_px = np.median(det_px[(det_cam == name) & (det_t > t_a + 0.5) & (det_t < t_b)])
+            X = np.median(p_cam + r_m[:, None] * dd, axis=0)
+            if kind == 0:
+                to = c_true - np.median(p_cam, axis=0)
+                r_t = np.linalg.norm(to)
+                ray = np.degrees(np.arccos(np.clip(np.median(dd, axis=0) / np.linalg.norm(np.median(dd, axis=0)) @ to / r_t, -1, 1)))
+                err = 1e3 * (X - c_true)
+            else:
+                s_t = (value - p_cam[:, 2]) / dd[:, 2]  # along the ray to the measured height
+                r_t, ray = float(np.median(s_t)), float("nan")
+                err = np.array([np.nan, np.nan, 1e3 * (X[2] - value)])
+            ratio = r_t / np.median(r_m)
+            rows.append((name, kind, r_t, ratio))
+            print(f"  {lab:28s} {name:8s}: {sel.sum():4d} det, {d_px:5.1f} px, range {1e3 * r_t:4.0f} mm, true/size "
+                  f"{ratio:.3f}, error {err[0]:+5.1f} {err[1]:+5.1f} {err[2]:+5.1f}, ray {ray:.2f} deg")
+    for name in calibs:
+        for kind, what in ((0, "on the blade"), (1, "on a support")):
+            r = np.array([(rt, ra) for n, k, rt, ra in rows if n == name and k == kind])
+            if len(r) >= 2 and np.ptp(r[:, 0]) > 0.02:
+                slope = np.polyfit(r[:, 0], r[:, 1], 1)[0]
+                print(f"{name} {what}: true/size {r[:, 1].min():.3f}-{r[:, 1].max():.3f}, change per 10 cm of range "
+                      f"{0.1 * slope:+.3f} (0 = the size scale is a constant)")
 
 
 # ---------------------------------------------------------------------------------------------------- selftest
@@ -1233,11 +1361,18 @@ def main() -> int:
     p.add_argument("--refit", action="store_true", help="no arm: refit from the newest saved recording")
     p.add_argument("--no-lift", action="store_true", help="only check gravity; don't solve the lift offset")
     p.add_argument("--fresh", action="store_true", help="analyse only the newest recording (default: pool all)")
+    p = sub.add_parser("static")
+    p.add_argument("--port", help="servo bus serial port (not needed with --refit)")
+    p.add_argument("--heights", type=float, nargs="+", default=[0.25, 0.28, 0.31, 0.34],
+                   help="blade face heights [m] for the ball resting on it (level blade reaches 0.055-0.355)")
+    p.add_argument("--seconds", type=float, default=4.0, help="recorded per placement")
+    p.add_argument("--free", action="store_true", help="then the ball on a support you measure (blade away)")
+    p.add_argument("--refit", action="store_true", help="no arm: report on the newest saved recording")
     args = ap.parse_args()
     torch.set_num_threads(1)
     return {"selftest": cmd_selftest, "targets": cmd_targets, "intrinsics": cmd_intrinsics, "overhead": cmd_overhead,
             "lift": cmd_lift, "table": cmd_table, "wrist": cmd_wrist, "timing": cmd_timing,
-            "gravity": cmd_gravity}[args.cmd](args)
+            "gravity": cmd_gravity, "static": cmd_static}[args.cmd](args)
 
 
 if __name__ == "__main__":
