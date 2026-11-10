@@ -35,7 +35,7 @@ from pingpong_sim.kinematics import ArmKinematics
 from pingpong_sim.real.arm import RATE, ArmModel, ArmSession, PlanBuilder, open_bus
 from pingpong_sim.real.calib_solve import (Links, angle_deg, fit_gravity, fit_intrinsics, fit_overhead, fit_timing,
                                            fit_wrist, leave_one_out, measure_ball, overhead_poses, project, rot, rot_z,
-                                           rvec, tag_on_face, wrist_poses)
+                                           rvec, tag_on_face, wrist_board_placement, wrist_poses)
 from pingpong_sim.real.camera_model import (CALIB_DIR, ArmCalib, CameraCalib, apply_wrist_mount, nominal,
                                             to_measurements)
 from pingpong_sim.real.cameras import MAX_BALL_PX, MIN_BALL_PX, BallCameras, RigConfig, UvcCamera
@@ -312,28 +312,55 @@ def report_overhead(fit: dict) -> None:
 
 # ---------------------------------------------------------------------------------------------------- wrist
 
+def wrist_usable(calib: CameraCalib):
+    """Board corners the wrist mount fit can use: beyond the blade strip and the holder (the half that looks above
+    the blade), inside the picture, in grid cells the lens fit had data in."""
+    cov = np.array(calib.steps.get("intrinsics", {}).get("coverage", np.ones((4, 8))))
+    W, H = calib.width, calib.height
+
+    def usable(uv: np.ndarray) -> np.ndarray:
+        u, v = uv[:, 0], uv[:, 1]
+        ok = (u >= 780) & (u < W - 30) & (v > 30) & (v < H - 30)
+        ci = np.clip((u / (W / 8)).astype(int), 0, 7)
+        ri = np.clip((v / (H / 4)).astype(int), 0, 3)
+        return ok & (cov[ri, ci] >= 3)
+
+    return usable
+
+
 def cmd_wrist(args) -> int:
     calib = CameraCalib.load("wrist")
     if "intrinsics" not in calib.steps:
         raise SystemExit("calibrate the wrist camera's lens first: calibrate.py intrinsics wrist")
     board = BoardDetector(min_corners=8)
-    cam = start_camera("wrist", board)
     arm = ArmCalib.load()
-    print("The board stands upright ~0.3 m beyond the paddle tip, facing the arm, its centre at about paddle height "
-          "(the wrist camera looks along the paddle and a little inward). Don't move it until `timing wrist` is done.")
+    model = ArmModel()
+    links = Links(model.m)
+    q_ready = Q_READY  # true angles; the session applies the joint offsets
+    R_lc, p_lc = (np.array(calib.R), np.array(calib.p)) if calib.R is not None else (links.cad_cam_R, links.cad_cam_p)
+    R_wb, p_wb, centre = wrist_board_placement(links, q_ready, R_lc, p_lc, board.corners3d, dist=0.40, above=0.16)
+    usable = wrist_usable(calib)
+    camera = {"K": calib.Km, "D": calib.Dm, "R": R_lc, "p": p_lc, "links": links, "board_R": R_wb, "board_p": p_wb,
+              "board_pts": board.corners3d, "usable": usable}
+    poses = wrist_poses(q_ready, model, n=args.poses, camera=camera)
+    print(f"Stand the board upright, long side horizontal, printed side facing the wrist camera (square to the line "
+          f"from the camera to the board). Its centre: {100 * centre[0]:.0f} cm in front of the arm base's axis, "
+          f"{100 * -centre[1]:.0f} cm to the robot's right of its centre line, {100 * centre[2]:.0f} cm above the "
+          "table. Don't move it until `timing wrist` is done.")
+    if not args.yes:
+        input("Enter when the board is there ")
+    cam = start_camera("wrist", board)
     try:
         with ArmSession(open_bus(args.port), joint_offsets=arm.joint_offsets) as s:
-            links = Links(s.model.m)
-            poses = wrist_poses(Q_READY, s.model, n=args.poses)
             check_tour(s, poses)
             qs, views = [], []
             for i, q in enumerate(poses):
                 s.move_to(q)
-                hold(s, 0.5)
+                hold(s, 1.5)  # the arm hunts ~+-1 deg for over a second after a move
                 cam.drain()
-                rows = hold(s, 0.7)
+                rows = hold(s, 1.0)
                 dets = [d for _, d in cam.drain()]
-                if len(dets) < 3:
+                if len(dets) < 5:
                     print(f"  pose {i + 1}/{len(poses)}: board seen in {len(dets)} frames, skipped")
                     continue
                 per_id: dict[int, list] = {}
@@ -347,18 +374,26 @@ def cmd_wrist(args) -> int:
             s.move_to(s.start)
     finally:
         cam.stop()
-    if len(views) < 8:
-        raise SystemExit(f"board seen at only {len(views)} poses (need >= 8): move it where the wrist camera sees it")
-    qs = np.array(qs)
-    raw = save_raw("wrist", qs=qs, ids=[v[0] for v in views], uv=[v[1] for v in views])
-    fit = fit_wrist(links, calib.Km, calib.Dm, qs, views, board.corners3d)
+    raw = save_raw("wrist", qs=np.array(qs), ids=[v[0] for v in views], uv=[v[1] for v in views])
+    # Only corners where the lens model is calibrated and the blade doesn't cut the board.
+    views_ok, qs_ok = [], []
+    for q, (ids, uv) in zip(qs, views):
+        m = usable(uv)
+        if m.sum() >= 8:
+            views_ok.append((ids[m], uv[m]))
+            qs_ok.append(q)
+    if len(views_ok) < 8:
+        raise SystemExit(f"board usable at only {len(views_ok)} poses (need >= 8): is it where the step said?")
+    qs_ok = np.array(qs_ok)
+    fit = fit_wrist(links, calib.Km, calib.Dm, qs_ok, views_ok, board.corners3d, mount0=(R_lc, p_lc))
     d_p = 1e3 * np.linalg.norm(fit["p"] - links.cad_cam_p)
-    print(f"RMS {fit['rms_px']:.2f} px over {len(views)} poses; mount {d_p:.1f} mm / "
-          f"{angle_deg(fit['R'], links.cad_cam_R):.2f} deg from CAD")
+    print(f"RMS {fit['rms_px']:.2f} px over {len(views_ok)} poses; mount {d_p:.1f} mm / "
+          f"{angle_deg(fit['R'], links.cad_cam_R):.2f} deg from CAD; board centre "
+          f"{np.round(fit['board_R'] @ board.corners3d.mean(0) + fit['board_p'], 3).tolist()} m")
     calib.R, calib.p = fit["R"].tolist(), fit["p"].tolist()
-    calib.steps["mount"] = {"date": stamp(), "poses": len(views), "rms_px": fit["rms_px"], "raw": raw.name,
+    calib.steps["mount"] = {"date": stamp(), "poses": len(views_ok), "rms_px": fit["rms_px"], "raw": raw.name,
                             "board_R": fit["board_R"].tolist(), "board_p": fit["board_p"].tolist(),
-                            "pose_q": qs.tolist()}
+                            "pose_q": qs_ok.tolist()}
     print("saved", calib.save())
     return 0
 
@@ -874,6 +909,7 @@ def main() -> int:
     p = sub.add_parser("wrist")
     p.add_argument("--port", required=True)
     p.add_argument("--poses", type=int, default=24)
+    p.add_argument("--yes", action="store_true", help="don't wait for Enter after the board placement")
     p = sub.add_parser("timing")
     p.add_argument("camera", choices=("overhead", "wrist"))
     p.add_argument("--port", required=True)

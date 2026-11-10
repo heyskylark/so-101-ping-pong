@@ -431,18 +431,84 @@ def leave_one_out(fit_fn, n: int) -> dict:
             "offsets_deg": s * np.sqrt(np.mean(np.square(do), axis=0))}
 
 
-def wrist_poses(ready: np.ndarray, model, n: int = 24, seed: int = 0) -> np.ndarray:
-    """Arm poses around the ready pose for the wrist camera to see a board in front of the arm from varied
-    viewpoints (pan +-0.25, lift/elbow +-0.12, wrist_flex +-0.25, wrist_roll +-0.4 rad), checked like above."""
+def board_clearance(model, R_wb: np.ndarray, p_wb: np.ndarray, board_pts: np.ndarray, margin: float = 0.03) -> float:
+    """Smallest distance (m) from the payload (paddle, holder, camera; `model` posed) to the board: the printed
+    area plus `margin` around it, treated as a flat sheet."""
+    lo, hi = board_pts.min(0)[:2] - margin, board_pts.max(0)[:2] + margin
+    best = math.inf
+    for g, v in model.verts.items():
+        X = v @ model.d.geom_xmat[g].reshape(3, 3).T + model.d.geom_xpos[g]
+        b = (X - p_wb) @ R_wb  # board frame
+        dx = np.maximum(np.maximum(lo[0] - b[:, 0], b[:, 0] - hi[0]), 0)
+        dy = np.maximum(np.maximum(lo[1] - b[:, 1], b[:, 1] - hi[1]), 0)
+        best = min(best, float(np.sqrt(dx * dx + dy * dy + b[:, 2] ** 2).min()))
+    return best
+
+
+def wrist_board_placement(links: Links, ready: np.ndarray, R_lc: np.ndarray, p_lc: np.ndarray, board_pts: np.ndarray,
+                          dist: float = 0.40, above: float = 0.13) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Where to stand the board for the wrist mount step: `dist` from the wrist camera (at ready) along its
+    horizontal viewing direction, its centre `above` m higher than the camera, upright, facing the camera, long
+    side horizontal. The wrist picture's half beyond the blade looks above the blade plane (where the ball flies,
+    and the only half the lens fit covers), so the board must be above paddle height or the blade cuts it in two.
+    Returns world-from-board rotation, the board frame's origin, and the board centre."""
+    R_l, p_l = links(ready)
+    R_c, c = R_l[0] @ R_lc, R_l[0] @ p_lc + p_l[0]
+    fwd = R_c[:, 2].copy()
+    fwd[2] = 0.0
+    fwd /= np.linalg.norm(fwd)
+    centre = c + dist * fwd + np.array([0.0, 0.0, above])
+    z_b = fwd  # board z: away from the camera (OpenCV's board frame looks into the board)
+    x_b = np.cross([0.0, 0.0, 1.0], z_b)
+    x_b /= np.linalg.norm(x_b)  # long side (x, 7 squares... the board's x runs along its 5-square side)
+    y_b = np.cross(z_b, x_b)
+    R_wb = np.stack([x_b, y_b, z_b], 1)
+    ext = board_pts.max(0) - board_pts.min(0)
+    if ext[0] < ext[1]:  # put the long side horizontal: swap the in-plane axes
+        R_wb = np.stack([y_b, -x_b, z_b], 1)
+    mid = board_pts.mean(0)
+    return R_wb, centre - R_wb @ mid, centre
+
+
+def wrist_poses(ready: np.ndarray, model, n: int = 24, seed: int = 0, camera: dict | None = None,
+                min_corners: int = 12, tries: int = 4000) -> np.ndarray:
+    """Arm poses around the ready pose (pan +-0.25, lift/elbow +-0.12, wrist_flex +-0.25, wrist_roll +-0.4 rad)
+    for the wrist camera to see the board from varied viewpoints, checked like above. With `camera` (K, D, R, p:
+    paddle-link-from-camera, links, board_R, board_p, board_pts, usable: pixels (N, 2) -> bool), each candidate's
+    board corners are projected and at least `min_corners` must be usable (clear of the blade, inside the
+    calibrated part of the lens); spread over pose."""
     rng = np.random.default_rng(seed)
     span = np.array([0.25, 0.12, 0.12, 0.25, 0.4])
-    out = []
-    while len(out) < n:
+    good = []
+    for _ in range(tries if camera is not None else 10 * n):
         q = ready + rng.uniform(-span, span)
+        if camera is not None:
+            R_l, p_l = camera["links"](q)
+            R_c, c = R_l[0] @ camera["R"], R_l[0] @ camera["p"] + p_l[0]
+            X = camera["board_pts"] @ camera["board_R"].T + camera["board_p"]
+            Xc = (X - c) @ R_c
+            if (Xc[:, 2] < 0.05).any():
+                continue
+            uv = project(camera["K"], camera["D"], R_c, c, X)
+            if camera["usable"](uv).sum() < min_corners:
+                continue
         model.forward(q)
-        if model.clearance() > 0.06 and not model.blade_hits():
-            out.append(q)
-    return order_poses(np.array(out), ready)
+        if model.clearance() > 0.06 and not model.blade_hits() and (
+                camera is None or board_clearance(model, camera["board_R"], camera["board_p"],
+                                                  camera["board_pts"]) > 0.05):
+            good.append(q)
+        if camera is None and len(good) >= n:
+            break
+    if len(good) < n:
+        raise RuntimeError(f"only {len(good)} poses see the board well; is it where the step says?")
+    good = np.array(good)
+    chosen = [int(np.argmin(np.abs(good - ready).sum(1)))]  # farthest-point sampling over joint angles
+    d = np.linalg.norm(good - good[chosen[0]], axis=1)
+    while len(chosen) < n:
+        k = int(np.argmax(d))
+        chosen.append(k)
+        d = np.minimum(d, np.linalg.norm(good - good[k], axis=1))
+    return order_poses(good[chosen], ready)
 
 
 def order_poses(qs: np.ndarray, start: np.ndarray | None = None) -> np.ndarray:
