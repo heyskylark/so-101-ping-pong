@@ -336,16 +336,22 @@ Calibration code: `scripts/calibrate.py` + `real/calib_solve.py`; `calibrate.py 
 synthetic data (overhead 0.86 mm / 0.06°, joint offsets 0.17°, wrist mount 0.21 mm / 0.03°, timing 0.16 ms, gravity
 tilt 0.05°). Targets printed (`make_calib_targets.py`: tag + 5×7 ChArUco of 30 mm on Letter, exact scale).
 
-- [ ] Intrinsics per camera (ChArUco board), fisheye model (barrel < −17 %): `calibrate.py intrinsics <camera>`.
-- [ ] Overhead extrinsics via the arm: `calibrate.py overhead`. AprilTag flat on the paddle's back face, ~20 planned
-      poses, fits camera pose, tag placement in the face plane and joint offsets (lift, elbow, wrist_flex,
-      wrist_roll). The flat-tag constraint is what makes the wrist_roll offset (sideways paddle tilt) observable.
-- [ ] Wrist camera mount: `calibrate.py wrist`; the ChArUco board flat on the table, 24 planned poses that roll the
-      paddle over to look down at it; closed-form hand-eye start (the module sits ~90° about its axis from CAD), then
-      the camera-in-paddle-link transform and the board pose. Two hand-held runs failed (board drift, 32–43 px).
-- [ ] Timestamp offset per camera: `calibrate.py timing <camera>`; sinusoidal arm motion, target track vs encoder
-      FK → capture-time offset and rolling-shutter readout.
-- [ ] Validate with gravity: `calibrate.py gravity`; ball flights fitted with drag, tilt must be < 0.5°.
+- [x] Intrinsics per camera (ChArUco board), 2-term fisheye: overhead f 833, 0.38 px, 97×51°; wrist f 827, 0.63 px
+      (lens fit covers the half of the wrist picture beyond the blade only).
+- [x] Overhead extrinsics via the arm: `calibrate.py overhead`, 45 poses / 3 sessions, RMS ~3.6 px, ±4.4 mm /
+      0.47° (leave-one-pose-out); elbow −7.7°, wrist_flex −0.2°, wrist_roll +1.7°. Pan and lift are not observable
+      here (they trade off against the camera's yaw / pitch).
+- [x] Shoulder-lift offset: **+9.75°** from the paddle height at ready (`calibrate.py lift --paddle-height-cm`,
+      ruler 26.5 cm). Gravity with one camera (±3.5°) and the table-board tilt (+12.37°: the table under the board
+      isn't level with the base to ~2.6°) were worse; the board height under +9.75 comes out −0.4 cm (ok).
+- [x] Wrist camera mount: `calibrate.py wrist`; board flat on the table (measured by the overhead camera), 19 poses,
+      RMS 5.2 px, 3.5 mm from CAD, module turned 91.4° about its axis from the CAD frame; leave-one-out ~6 mm / 1°
+      (arm pose error flipped over, ~1–2°). Hand-held and propped boards failed (drift). Target 1 mm / 0.5° not met.
+- [x] Timestamp offset per camera: overhead stamp −4.6 ms + 33.1 ms × row, wrist +4.8 ms + 24.8 ms × row (~±1 ms;
+      residual 9–14 px is backlash at the wave's reversals).
+- [ ] Validate with gravity: `calibrate.py gravity`; ball flights fitted with drag, tilt must be < 0.5°. Two-camera
+      run: cameras agree (overhead point ~1 mm off the wrist ray on average, 11 mm RMS) but the fitted gravity tilts
+      8.6° sideways / 6.5° about the lift axis: arcs likely include hand release / catch.
       Frame tilt matters: 1° ≈ the paddle-tilt error in §4 (~3 cm drift/bounce).
 - [ ] Level check: ball resting on the "flat" paddle must not roll.
 

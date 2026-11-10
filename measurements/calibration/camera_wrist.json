@@ -50,7 +50,7 @@
   ],
   "stamp_offset": 0.00475142969321653,
   "readout": 0.024771326844418438,
-  "size_scale": 1.0,
+  "size_scale": 0.9202922922615772,
   "noise": {
     "pixel": 1.0,
     "diameter": 1.5,
@@ -277,6 +277,11 @@
       "frames": 117,
       "rms_px": 9.042179950365364,
       "raw": "2026-11-09_214716_timing_wrist.npz"
+    },
+    "size_scale": {
+      "date": "2026-11-09_215429",
+      "flights": 29,
+      "uncertainty": 0.018662672879984275
     }
   }
 }
