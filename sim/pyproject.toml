@@ -17,6 +17,7 @@ dependencies = [
   "matplotlib>=3.11.2",
   "numpy",
   "onnxruntime>=1.31.1",
+  "opencv-python>=5.0.0.93",
   "pyyaml",
 ]
 
