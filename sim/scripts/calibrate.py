@@ -720,13 +720,26 @@ def cmd_timing(args) -> int:
             s.move_to(motion[0])
             hold(s, 0.5)
             cam.drain()
-            s.follow(motion, on_tick=lambda k, g, r: rows.append((r.t, r.q)))
-            dets = cam.drain()
+            dets = []
+            dropped0 = cam.dropped
+
+            def tick(k, g, r):  # drain every tick: the camera's result queue holds only 64
+                rows.append((r.t, r.q))
+                dets.extend(cam.drain())
+
+            s.follow(motion, on_tick=tick)
+            dets.extend(cam.drain())
             s.move_to(s.start)
     finally:
         cam.stop()
+    if cam.dropped > dropped0:
+        print(f"warning: {cam.dropped - dropped0} detections lost to a full camera queue")
     t_enc, q_enc = np.array([r[0] for r in rows]), np.array([r[1] for r in rows])
     dets = [(st, d) for st, d in dets if t_enc[0] + 0.2 < st < t_enc[-1] - 0.2]
+    print(f"{len(dets)} frames with the target during the {args.seconds:.0f} s motion "
+          f"({len(dets) / max(t_enc[-1] - t_enc[0] - 0.4, 1e-6):.1f} per second; the camera runs at ~29.5)")
+    save_raw(f"timing_{name}", t_enc=t_enc, q_enc=q_enc, stamps=np.array([st for st, _ in dets]),
+             dets=[d for _, d in dets], offsets=np.array(arm.joint_offsets))
     if len(dets) < 60:
         raise SystemExit(f"only {len(dets)} frames with the target during the motion")
     stamps = np.array([st for st, _ in dets])

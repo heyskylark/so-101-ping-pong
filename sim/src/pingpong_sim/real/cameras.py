@@ -162,6 +162,7 @@ class UvcCamera(threading.Thread):
         self.out: queue.Queue = queue.Queue(maxsize=max_queue)
         self.stop_flag = threading.Event()
         self.frames = 0
+        self.dropped = 0  # results lost to a full queue (the consumer didn't drain often enough)
         self.stamp_source = "?"
         self.latency: list[float] = []  # arrival - buffer stamp, s (last 100)
         self.last_frame: np.ndarray | None = None
@@ -214,7 +215,7 @@ class UvcCamera(threading.Thread):
                     try:
                         self.out.put_nowait((stamp, result))
                     except queue.Full:
-                        pass
+                        self.dropped += 1
         finally:
             cap.release()
 
