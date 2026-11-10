@@ -503,6 +503,27 @@ drifting** parameters (this paddle's restitution, latency, backlash, sag), which
          command delay 0–20 ms, a 0.64 s history observation (ball estimate, blade height/speed, predicted time to
          impact, every 40 ms) and the mismatch in the critic; apex 0.15 m, stroke 0.10 / follow 0.08 s.
          Old policies run with their own `policy.json` settings. Compare with `sim2sim.py --belief-gravity`.
+       - `residual_v3` (2000 it × 4096, 2.9 h; plateau from ~1400 at ~28.7 bounces per finished episode) vs
+         `residual_v1`, sim2sim, 48 episodes each (±7 points), both in today's sim (refit servos, ±15 ms stamps,
+         0–20 ms delay; v1 runs with its own 0.25 m / old stroke):
+
+         | Filter/bouncer gravity belief | v1 full 20 s | v3 full 20 s | v1 / v3 bounces p50 |
+         |---|---|---|---|
+         | ×1.00 | 45.8 % | 60.4 % | 36 / 48 |
+         | ×0.89 | 35.4 % | 58.3 % | 14 / 49 |
+         | ×1.12 | 25.0 % | 45.8 % | 14 / 46 |
+
+         v3 per bounce: apex 141 ± 45 mm (target 150), landing 17 / 46 mm, contact 10 / 26 mm off centre.
+       - Correction (`b7071a7`): `calibrate.gravity_measurements` gave every wrist detection the arm pose at the
+         end of the recording (a 32-tick ArmHistory fed the whole log). The gravity step held the arm still, so
+         it was unaffected; the run-log analyses above (impact times from camera points, the wrist camera's
+         flights) were not. Redone: impact predictions vs detected impacts −26 / +0 / −50 ms per run (n 9 / 14 / 7,
+         wide spread), so "early" holds on average but not as a tight 19–28 ms. Overhead flights read 8.44 m/s²
+         (no arm in them); triangulated range / overhead size-based range 1.088 with the ball at 0.20–0.30 m,
+         1.00 above 0.35 m: the overhead camera puts a low ball ~2 cm too high (on 3 flights with enough pairs,
+         triangulated 9.37 m/s², overhead size-based 8.54). Likely the red rubber's orange-ish edge joining the
+         blob (cameras.py notes it). Next: paddle flipped (black hitting side, tag on the red side), recalibrate,
+         `calibrate.py static --free`.
 
 ## Decisions
 
