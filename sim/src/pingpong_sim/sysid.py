@@ -97,10 +97,11 @@ def load_windows(run_dir: Path) -> Windows:
         out["names"].append(f"{segs[seg[k]]['name']}@{t_read[k]:.1f}")
         out["split"].append(labels[k])
         k += WINDOW
-    T = min(len(g) for g in out["goal"]) - hist
-    out["goal"] = [g[: T + hist] for g in out["goal"]]
-    out["vin"] = [v[:T] for v in out["vin"]]
-    assert max(r.max() for r in out["read_step"]) < T, "read beyond the shortest window"
+    # Windows differ by a step or two in sim length (read timing): pad the shorter ones (goal and supply held) after
+    # their last read, so the padding never reaches the cost.
+    T = max(len(g) for g in out["goal"]) - hist
+    out["goal"] = [np.concatenate([g, np.repeat(g[-1:], T + hist - len(g), axis=0)]) for g in out["goal"]]
+    out["vin"] = [np.concatenate([v, np.repeat(v[-1:], T - len(v))]) for v in out["vin"]]
     return Windows(**{k: (np.stack(v) if k != "names" else v) for k, v in out.items()})
 
 

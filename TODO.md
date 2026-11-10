@@ -477,9 +477,11 @@ drifting** parameters (this paddle's restitution, latency, backlash, sag), which
        - Open: why the real ball appears to fall at ~8.7 m/s². Test: `run_robot.py --ball-gravity 8.7`
          (experiment flag; logged in meta.json warnings): "a tad better". Replay: still −19 ms; the paddle still
          peaks 31 ms before contact (0.12 m/s at contact). The same −19 ms in sim leaves 0.74 m/s at contact.
-       - **Main finding:** the real servos deliver 52–66 % of the commanded stroke speed, 50–90 ms behind it (sim
-         servo model: 99–100 %, 40–60 ms). The fitted servo model came from slower motions (steps, chirps); the
-         feedforward (tracking model, identified on that sim servo) and the policy's training assume it.
+       - Corrected: the real arm follows the bouncer's plan (dry strokes, `record_servos.py strokes`: face speed on
+         time, gain 0.99, 0.60 m/s at impact for 0.52 planned). An earlier "52–66 % of commanded" compared against
+         the feedforward goal, not the plan. So the impact prediction (19–28 ms early) is what's wrong on the rig;
+         the sim servo lags its plan ~10–20 ms, which masks the same early prediction in sim. Shorter strokes
+         (0.10 / 0.08 s) track worse on the real arm (gain 0.73, corr 0.45; sim 1.00, 0.85).
        - Sim, scripted, 256 worlds × 20 s, randomized servos, 30 ms latency: baseline 31 % still bouncing; impacts
          predicted early (filter gravity 11) 24 %; holding the hitting speed ±40 ms ("cruise") 1.6 % (dropped);
          apex 0.12 m 0–0.4 % (follow-through + approach + stroke no longer fit between bounces).
