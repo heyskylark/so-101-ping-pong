@@ -50,7 +50,7 @@
   ],
   "stamp_offset": -0.004574215181585311,
   "readout": 0.033105908898060796,
-  "size_scale": 1.074371788762914,
+  "size_scale": 1.0146367634169435,
   "noise": {
     "pixel": 1.0,
     "diameter": 1.5,
@@ -130,9 +130,9 @@
       "raw": "2026-11-09_214632_timing_overhead.npz"
     },
     "size_scale": {
-      "date": "2026-11-09_215429",
-      "flights": 29,
-      "uncertainty": 0.02202421706164733
+      "date": "2026-11-09_220453",
+      "flights": 14,
+      "uncertainty": 0.014953315457908263
     }
   }
 }
