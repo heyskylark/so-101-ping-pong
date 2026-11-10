@@ -497,6 +497,12 @@ drifting** parameters (this paddle's restitution, latency, backlash, sag), which
          defaults to its delay) and `fit_servos.py --run <2026-11-08_212508> <strokes>` → shorter stroke and
          follow-through for a ~0.15–0.18 m apex (the overhead camera, 0.51 m up, loses the ball above ~0.2 m) →
          retrain `residual` → real test. `run_robot.py` re-engages a ball falling back onto the blade during RECOVER.
+       - Strokes recorded and the servo model refit (held-out stroke RMS −15–20 %). `residual_v3` retrain, so the
+         policy *adapts* to timing mismatch instead of the tracker being tuned (`9ae9f5d`): per-episode filter +
+         bouncer gravity belief 0.85–1.15 × g (the rig behaved like ~0.89), camera timestamp bias ±15 ms, servo
+         command delay 0–20 ms, a 0.64 s history observation (ball estimate, blade height/speed, predicted time to
+         impact, every 40 ms) and the mismatch in the critic; apex 0.15 m, stroke 0.10 / follow 0.08 s.
+         Old policies run with their own `policy.json` settings. Compare with `sim2sim.py --belief-gravity`.
 
 ## Decisions
 
