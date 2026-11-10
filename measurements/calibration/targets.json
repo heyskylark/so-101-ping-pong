@@ -20,5 +20,9 @@
     "paper": "Letter",
     "dpi": 600
   },
-  "measured_mm": {}
+  "measured_mm": {
+    "ruler_100": 100.0,
+    "tag_black_square": 70.1,
+    "board_square": 30.0
+  }
 }

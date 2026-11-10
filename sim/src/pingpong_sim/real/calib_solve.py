@@ -318,18 +318,21 @@ def fit_gravity(arcs: list[dict]) -> dict:
 # ---------------------------------------------------------------------------------------------------- poses
 
 def overhead_poses(links: Links, model, cam_p: np.ndarray, cam_axis: np.ndarray, n: int = 20, seed: int = 0,
-                   max_angle_deg: float = 40.0, tries: int = 20000) -> np.ndarray:
+                   max_angle_deg: float = 40.0, tries: int = 20000, camera: dict | None = None,
+                   margin_px: float = 40.0, min_tag_px: float = 110.0) -> np.ndarray:
     """Arm poses (n, 5) showing the paddle's back face (the tag) to a camera near `cam_p` looking along `cam_axis`:
-    face normal within max_angle of the camera direction, tag within max_angle of the optical axis, 0.2-0.6 m away,
-    payload clear of the table and blade clear of the arm (`model`: arm.ArmModel). Spread out, ordered for short
-    moves from the ready pose."""
+    face normal within max_angle of the camera direction, 0.2-0.6 m away, payload clear of the table and blade
+    clear of the arm (`model`: arm.ArmModel). With `camera` (K, D, R, p world-from-camera, width, height, tag_pts,
+    tag_R, tag_p), each candidate's tag corners are projected through the real lens: all four inside the picture
+    with `margin_px`, the tag at least `min_tag_px` across (without it, the tag within max_angle of the axis: the
+    first real run lost half its poses that way, the lens is only 51 deg tall). Spread over picture position, face
+    angle and arm shape (lift, elbow: separates the joint offsets from the camera pose), ordered for short moves."""
     rng = np.random.default_rng(seed)
     lo, hi = model.range[:, 0] + 0.1, model.range[:, 1] - 0.1
     box_lo = np.array([-0.35, -1.3, -0.2, -1.3, -2.75])
     box_hi = np.array([0.35, 0.1, 1.6, 1.3, 2.75])
     cos_max = math.cos(math.radians(max_angle_deg))
     axis = cam_axis / np.linalg.norm(cam_axis)
-    good, feats = [], []
     q = rng.uniform(np.maximum(box_lo, lo), np.minimum(box_hi, hi), size=(tries, 5))
     q[:, 4] = np.sign(q[:, 4]) * rng.uniform(1.9, 2.7, tries)  # back face up: roll well past +-90 deg
     R_l, p_l = links(q)
@@ -337,26 +340,56 @@ def overhead_poses(links: Links, model, cam_p: np.ndarray, cam_axis: np.ndarray,
     nrm = np.einsum("nij,j->ni", R_l, links.back_R[:, 2])
     to_cam = cam_p - c
     dist = np.linalg.norm(to_cam, axis=1)
-    ok = (np.einsum("ni,ni->n", nrm, to_cam) / dist > cos_max) & (-(to_cam @ axis) / dist > cos_max)
-    ok &= (dist > 0.2) & (dist < 0.6) & (c[:, 2] > 0.15)
+    ok = (np.einsum("ni,ni->n", nrm, to_cam) / dist > cos_max) & (dist > 0.2) & (dist < 0.6) & (c[:, 2] > 0.15)
+    uvc = np.zeros((tries, 2))
+    if camera is None:
+        ok &= -(to_cam @ axis) / dist > cos_max
+    else:
+        W, H = camera["width"], camera["height"]
+        X = np.einsum("nij,kj->nki", R_l, camera["tag_pts"] @ np.asarray(camera["tag_R"]).T + camera["tag_p"]) + p_l[:, None]
+        Xc = (X.reshape(-1, 3) - camera["p"]) @ np.asarray(camera["R"])
+        front = (Xc[:, 2] > 0.05).reshape(tries, 4).all(1)
+        uv = project(camera["K"], camera["D"], np.asarray(camera["R"]), np.asarray(camera["p"]), X.reshape(-1, 3))
+        uv = uv.reshape(tries, 4, 2)
+        inside = ((uv[..., 0] > margin_px) & (uv[..., 0] < W - margin_px) & (uv[..., 1] > margin_px)
+                  & (uv[..., 1] < H - margin_px)).all(1)
+        span = np.minimum(np.linalg.norm(uv[:, 0] - uv[:, 2], axis=1), np.linalg.norm(uv[:, 1] - uv[:, 3], axis=1))
+        ok &= front & inside & (span > min_tag_px)
+        uvc = uv.mean(1) / np.array([W, H])
+    good, feats = [], []
     for i in np.flatnonzero(ok):
         model.forward(q[i])
         if model.clearance() < 0.06 or model.blade_hits():
             continue
         good.append(q[i])
-        feats.append(np.concatenate([c[i] / 0.1, nrm[i]]))
+        feats.append(np.concatenate([c[i] / 0.1, nrm[i], 2 * uvc[i], q[i, 1:3] / 0.5]))
         if len(good) >= 50 * n:
             break
     if len(good) < n:
         raise RuntimeError(f"only {len(good)} poses show the tag to the camera; is the camera guess right?")
     good, feats = np.array(good), np.array(feats)
-    chosen = [int(np.argmax(feats[:, 2]))]  # farthest-point sampling over position and normal
+    chosen = [int(np.argmax(feats[:, 2]))]  # farthest-point sampling
     d = np.linalg.norm(feats - feats[chosen[0]], axis=1)
     while len(chosen) < n:
         k = int(np.argmax(d))
         chosen.append(k)
         d = np.minimum(d, np.linalg.norm(feats - feats[k], axis=1))
     return order_poses(good[chosen])
+
+
+def leave_one_out(fit_fn, n: int) -> dict:
+    """Jackknife spread of a fit: `fit_fn(indices)` -> (camera position (3,), rotation (3, 3), offsets (5,)).
+    Standard errors of the position (m), rotation (deg) and offsets (deg)."""
+    full = fit_fn(list(range(n)))
+    dp, da, do = [], [], []
+    for i in range(n):
+        p, R, d = fit_fn([j for j in range(n) if j != i])
+        dp.append(np.linalg.norm(p - full[0]))
+        da.append(angle_deg(R, full[1]))
+        do.append(np.degrees(d - full[2]))
+    s = math.sqrt(n - 1)
+    return {"pos_m": s * float(np.sqrt(np.mean(np.square(dp)))), "rot_deg": s * float(np.sqrt(np.mean(np.square(da)))),
+            "offsets_deg": s * np.sqrt(np.mean(np.square(do), axis=0))}
 
 
 def wrist_poses(ready: np.ndarray, model, n: int = 24, seed: int = 0) -> np.ndarray:

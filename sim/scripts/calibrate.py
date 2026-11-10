@@ -34,8 +34,8 @@ from pingpong_sim.controller import ArmHistory
 from pingpong_sim.kinematics import ArmKinematics
 from pingpong_sim.real.arm import RATE, ArmModel, ArmSession, PlanBuilder, open_bus
 from pingpong_sim.real.calib_solve import (Links, angle_deg, fit_gravity, fit_intrinsics, fit_overhead, fit_timing,
-                                           fit_wrist, measure_ball, overhead_poses, project, rot, rot_z, rvec,
-                                           tag_on_face, wrist_poses)
+                                           fit_wrist, leave_one_out, measure_ball, overhead_poses, project, rot, rot_z,
+                                           rvec, tag_on_face, wrist_poses)
 from pingpong_sim.real.camera_model import (CALIB_DIR, ArmCalib, CameraCalib, apply_wrist_mount, nominal,
                                             to_measurements)
 from pingpong_sim.real.cameras import BallCameras, RigConfig, UvcCamera
@@ -219,47 +219,82 @@ def cmd_intrinsics(args) -> int:
 
 # ---------------------------------------------------------------------------------------------------- overhead
 
+def overhead_sessions() -> list[Path]:
+    return sorted(p for p in RAW.glob("*_overhead.npz") if "_intrinsics_" not in p.name)
+
+
 def cmd_overhead(args) -> int:
     calib = CameraCalib.load("overhead")
     if "intrinsics" not in calib.steps:
         raise SystemExit("calibrate the overhead camera's lens first: calibrate.py intrinsics overhead")
     tag = TagDetector()
-    cam = start_camera("overhead", tag)
-    try:
-        with ArmSession(open_bus(args.port)) as s:  # raw angles: the offsets are being fitted
-            links = Links(s.model.m)
-            cp, ca = nominal_overhead()
-            poses = overhead_poses(links, s.model, cp, ca, n=args.poses)
-            check_tour(s, poses)
-            qs, corners = [], []
-            for i, q in enumerate(poses):
-                s.move_to(q)
-                hold(s, 0.5)
-                cam.drain()
-                rows = hold(s, 0.7)
-                dets = [c for _, c in cam.drain()]
-                if len(dets) < 3:
-                    print(f"  pose {i + 1}/{len(poses)}: tag seen in {len(dets)} frames, skipped")
-                    continue
-                qs.append(np.mean([r[1] for r in rows], axis=0))
-                corners.append(np.median(np.array(dets), axis=0))
-                print(f"  pose {i + 1}/{len(poses)}: tag in {len(dets)} frames")
-            s.move_to(s.start)
-    finally:
-        cam.stop()
+    prev = ArmCalib.load()
+    have_prev = calib.R is not None and prev.tag_R is not None
+    off_prev = np.array(prev.joint_offsets) if have_prev else np.zeros(len(JOINTS))
+    if not args.refit:
+        cam = start_camera("overhead", tag)
+        try:
+            with ArmSession(open_bus(args.port)) as s:  # raw angles: the offsets are being fitted
+                links = Links(s.model.m)
+                cp, ca = nominal_overhead()
+                camera = None
+                if have_prev:  # plan through the real lens with the previous estimate of the camera and the tag
+                    cp, ca = np.array(calib.p), np.array(calib.R)[:, 2]
+                    camera = {"K": calib.Km, "D": calib.Dm, "R": np.array(calib.R), "p": cp, "width": calib.width,
+                              "height": calib.height, "tag_pts": tag.object_points, "tag_R": np.array(prev.tag_R),
+                              "tag_p": np.array(prev.tag_p)}
+                poses = overhead_poses(links, s.model, cp, ca, n=args.poses, camera=camera) - off_prev  # -> raw
+                check_tour(s, poses)
+                qs, corners = [], []
+                for i, q in enumerate(poses):
+                    s.move_to(q)
+                    hold(s, 1.5)  # the arm hunts ~+-1 deg for over a second after a move
+                    cam.drain()
+                    rows = hold(s, 1.0)
+                    dets = [c for _, c in cam.drain()]
+                    if len(dets) < 5:
+                        print(f"  pose {i + 1}/{len(poses)}: tag seen in {len(dets)} frames, skipped")
+                        continue
+                    qs.append(np.mean([r[1] for r in rows], axis=0))
+                    corners.append(np.median(np.array(dets), axis=0))
+                    print(f"  pose {i + 1}/{len(poses)}: tag in {len(dets)} frames")
+                s.move_to(s.start)
+        finally:
+            cam.stop()
+        if qs:
+            save_raw("overhead", qs=np.array(qs), corners=np.array(corners))
+    else:
+        links = Links(ArmModel().m)
+    # Pool the sessions (the camera and the tag must not have moved between them; --fresh: the newest only).
+    sessions = overhead_sessions()[-1:] if args.fresh else overhead_sessions()
+    data = [np.load(p) for p in sessions]
+    qs = np.concatenate([d["qs"] for d in data]) if data else np.zeros((0, 5))
+    corners = np.concatenate([d["corners"] for d in data]) if data else np.zeros((0, 4, 2))
     if len(qs) < 8:
         raise SystemExit(f"tag seen at only {len(qs)} poses (need >= 8): is the tag on the back face, the camera "
                          "where docs/hardware_setup.md puts it?")
-    qs, corners = np.array(qs), np.array(corners)
-    raw = save_raw("overhead", qs=qs, corners=corners)
     fit = fit_overhead(links, calib.Km, calib.Dm, qs, corners, tag.object_points)
     report_overhead(fit)
+
+    def sub(idx):
+        f = fit_overhead(links, calib.Km, calib.Dm, qs[idx], corners[idx], tag.object_points)
+        return f["p"], f["R"], f["offsets"]
+
+    unc = leave_one_out(sub, len(qs))
+    ok = unc["pos_m"] <= 0.003 and unc["rot_deg"] <= 0.3
+    print(f"uncertainty (leave-one-pose-out, {len(qs)} poses from {len(sessions)} session(s)): camera "
+          f"{1e3 * unc['pos_m']:.1f} mm / {unc['rot_deg']:.2f} deg (target 3 mm / 0.3 deg: "
+          f"{'met' if ok else 'NOT met, run again to add poses'}); offsets [deg] lift/elbow/wrist_flex/roll "
+          + "/".join(f"{v:.2f}" for v in unc["offsets_deg"][1:]))
     calib.R, calib.p = fit["R"].tolist(), fit["p"].tolist()
-    calib.steps["extrinsics"] = {"date": stamp(), "poses": len(qs), "rms_px": fit["rms_px"], "raw": raw.name}
+    calib.steps["extrinsics"] = {"date": stamp(), "poses": len(qs), "rms_px": fit["rms_px"],
+                                 "raw": [p.name for p in sessions], "uncertainty_mm": 1e3 * unc["pos_m"],
+                                 "uncertainty_deg": unc["rot_deg"]}
     arm = ArmCalib.load()
     arm.joint_offsets = fit["offsets"].tolist()
     arm.tag_R, arm.tag_p = fit["tag_R"].tolist(), fit["tag_p"].tolist()
-    arm.steps["overhead"] = {"date": stamp(), "poses": qs.tolist(), "per_view_px": fit["per_view_px"].tolist()}
+    arm.steps["overhead"] = {"date": stamp(), "poses": qs.tolist(), "per_view_px": fit["per_view_px"].tolist(),
+                             "offsets_uncertainty_deg": unc["offsets_deg"].tolist()}
     print("saved", calib.save(), arm.save())
     return 0
 
@@ -646,10 +681,14 @@ def main() -> int:
     p.add_argument("--views", type=int, default=30)
     p.add_argument("--fresh", action="store_true", help="fit only this session's views (default: pool all saved ones)")
     p.add_argument("--refit", action="store_true", help="no camera: refit from the saved views")
-    for name, n in (("overhead", 20), ("wrist", 24)):
-        p = sub.add_parser(name)
-        p.add_argument("--port", required=True)
-        p.add_argument("--poses", type=int, default=n)
+    p = sub.add_parser("overhead")
+    p.add_argument("--port", help="servo bus serial port (not needed with --refit)")
+    p.add_argument("--poses", type=int, default=24)
+    p.add_argument("--fresh", action="store_true", help="fit only the newest session (default: pool all saved ones)")
+    p.add_argument("--refit", action="store_true", help="no arm: refit from the saved sessions")
+    p = sub.add_parser("wrist")
+    p.add_argument("--port", required=True)
+    p.add_argument("--poses", type=int, default=24)
     p = sub.add_parser("timing")
     p.add_argument("camera", choices=("overhead", "wrist"))
     p.add_argument("--port", required=True)
