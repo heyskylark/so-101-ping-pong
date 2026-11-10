@@ -47,6 +47,9 @@ class CameraCalib:
     p: list | None = None  # 3
     stamp_offset: float = 0.0  # s, row 0 capture time (mid-exposure) - buffer timestamp
     readout: float = 0.0  # s, rolling shutter: last row is captured `readout` after row 0
+    # Detected / true ball diameter (the colour mask's fringe and motion blur make the blob larger; the gravity step
+    # fits it with |g| known). The filter's range comes from the apparent size, so this is a range scale.
+    size_scale: float = 1.0
     noise: dict = field(default_factory=lambda: _noise(OVERHEAD))
     steps: dict = field(default_factory=dict)  # calibration step -> {date, residuals, ...}
 
@@ -104,7 +107,7 @@ class CameraCalib:
         xy = self.undistort(uv)
         theta = np.arctan(np.linalg.norm(xy, axis=1))
         s_r, s_t = self.lens_scales(theta)
-        alpha = np.asarray(d_px, float) / np.sqrt(s_r * s_t)
+        alpha = np.asarray(d_px, float) / np.sqrt(s_r * s_t) / self.size_scale
         z = np.concatenate([xy, alpha[:, None]], axis=1)
         n = self.noise
         sigma = measurement_sigma(torch.as_tensor(np.minimum(theta, 1.45)), torch.as_tensor(alpha), self.focal,

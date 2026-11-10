@@ -460,7 +460,7 @@ def _tag(links: Links, q: np.ndarray, R_lt, p_lt, tag_pts) -> np.ndarray:
 
 # ---------------------------------------------------------------------------------------------------- gravity
 
-def split_arcs(t: np.ndarray, X: np.ndarray, min_points: int = 8, min_s: float = 0.15) -> list[np.ndarray]:
+def split_arcs(t: np.ndarray, X: np.ndarray, min_points: int = 6, min_s: float = 0.12) -> list[np.ndarray]:
     """Indices of free-flight arcs: split at gaps > 0.1 s and at bounces (a height minimum with the motion turning
     from down to up)."""
     cuts = [0]
@@ -481,7 +481,8 @@ def split_arcs(t: np.ndarray, X: np.ndarray, min_points: int = 8, min_s: float =
 def gravity_measurements(dets: np.ndarray, cams: list[str], enc_t: np.ndarray, enc_q: np.ndarray,
                          calibs: dict[str, CameraCalib], model) -> dict[str, np.ndarray]:
     """Raw detections (N, 5: camera index, stamp, u, v, d; times on the encoder clock) of the cameras in `calibs`
-    -> measurement arrays t, R, p, z, sigma (wrist poses from the encoder log through the arm model)."""
+    -> measurement arrays t, R, p, z, sigma, cam (index into list(calibs)), sorted by time; wrist poses from the
+    encoder log through the arm model."""
     from pingpong_sim.real.camera_model import PixelDetection
 
     kin = ArmKinematics(model, prefix="")
@@ -490,9 +491,18 @@ def gravity_measurements(dets: np.ndarray, cams: list[str], enc_t: np.ndarray, e
     hist = ArmHistory(kin, 1, 1 / RATE, "cpu")
     for t, q in zip(enc_t, enc_q):
         hist.push(float(t), torch.tensor(q, dtype=torch.float32)[None])
-    pix = [PixelDetection(cams[int(r[0])], *map(float, r[1:])) for r in dets if cams[int(r[0])] in calibs]
-    m = to_measurements(pix, calibs, hist.hist)
-    return {k: m[k][:, 0].numpy().astype(float) for k in ("t", "R", "p", "z", "sigma")}
+    parts = []
+    for ci, name in enumerate(calibs):
+        pix = [PixelDetection(name, *map(float, r[1:])) for r in dets if cams[int(r[0])] == name]
+        if not pix:
+            continue
+        m = to_measurements(pix, {name: calibs[name]}, hist.hist)
+        part = {k: m[k][:, 0].numpy().astype(float) for k in ("t", "R", "p", "z", "sigma")}
+        part["cam"] = np.full(len(part["t"]), ci)
+        parts.append(part)
+    out = {k: np.concatenate([p[k] for p in parts]) for k in ("t", "R", "p", "z", "sigma", "cam")}
+    order = np.argsort(out["t"], kind="stable")
+    return {k: v[order] for k, v in out.items()}
 
 
 def gravity_arcs(m: dict) -> list[np.ndarray]:
@@ -502,13 +512,47 @@ def gravity_arcs(m: dict) -> list[np.ndarray]:
     return split_arcs(m["t"], X)
 
 
-def fit_g(m: dict, arcs: list[np.ndarray]) -> dict:
-    return fit_gravity([{k: m[k][i] for k in ("t", "R", "p", "z", "sigma")} for i in arcs])
+def arc_list(m: dict, arcs: list[np.ndarray]) -> list[dict]:
+    return [{k: m[k][i] for k in ("t", "R", "p", "z", "sigma", "cam")} for i in arcs]
+
+
+def fit_g(m: dict, arcs: list[np.ndarray], n_cams: int = 1) -> dict:
+    """Gravity direction with |g| = 9.81 and a size scale per camera."""
+    return fit_gravity(arc_list(m, arcs), fix_magnitude=True, n_cams=n_cams)
+
+
+def tilts_deg(g: np.ndarray) -> tuple[float, float]:
+    """Gravity's tilt about the robot's forward (x) axis and about the lift (y) axis."""
+    return float(np.degrees(np.arctan2(g[1], -g[2]))), float(np.degrees(np.arctan2(-g[0], -g[2])))
+
+
+def load_gravity_recordings() -> tuple[np.ndarray, list[str], np.ndarray, np.ndarray]:
+    """All gravity recordings pooled (each shifted by 1000 s): detections (N, 5, camera indices into the returned
+    names), camera names, encoder times and raw angles."""
+    names: list[str] = []
+    D, T, Q = [], [], []
+    for k, path in enumerate(sorted(RAW.glob("*_gravity.npz"))):
+        g = np.load(path)
+        rec = [str(n) for n in g["cameras"]]
+        for n in rec:
+            if n not in names:
+                names.append(n)
+        d = g["dets"].copy()
+        d = d[(d[:, 4] >= MIN_BALL_PX) & (d[:, 4] <= MAX_BALL_PX)]  # recordings from before the size limits
+        d[:, 0] = [names.index(rec[int(i)]) for i in d[:, 0]]
+        d[:, 1] += 1000.0 * k
+        D.append(d)
+        T.append(g["enc_t"] + 1000.0 * k)
+        Q.append(g["enc_q"])
+    return np.concatenate(D), names, np.concatenate(T), np.concatenate(Q)
 
 
 def cmd_gravity(args) -> int:
     arm = ArmCalib.load()
     model = ArmModel().m
+    if args.cameras is None:
+        args.cameras = [n for n in ("overhead", "wrist")
+                        if CameraCalib.path(n).exists() and CameraCalib.load(n).R is not None]
     if not args.refit:
         calibs = {n: CameraCalib.load(n) for n in args.cameras}
         for n, c in calibs.items():
@@ -520,8 +564,8 @@ def cmd_gravity(args) -> int:
             s.move_to(Q_READY)
             cams.start()
             t0 = s.bus.now()
-            print(f"Drop the ball from 20-40 cm above the paddle, let it bounce out, catch it, repeat; "
-                  f"{args.seconds:.0f} s.")
+            print(f"Toss the ball gently across the space above the paddle (arcs peaking 10-20 cm above it, not "
+                  f"touching the paddle), let it land beyond, repeat; {args.seconds:.0f} s.")
             try:
                 def tick(k, goal, r):
                     enc.append((r.t - t0, r.q - np.asarray(arm.joint_offsets)))  # raw angles: offsets may change
@@ -535,15 +579,10 @@ def cmd_gravity(args) -> int:
         save_raw("gravity", cameras=np.array(names), enc_t=np.array([e[0] for e in enc]),
                  enc_q=np.array([e[1] for e in enc]),
                  dets=np.array([(names.index(d.camera), d.stamp - t0, d.u, d.v, d.d) for d in dets]).reshape(-1, 5))
-    raw = sorted(RAW.glob("*_gravity.npz"))[-1]
-    g = np.load(raw)
-    names = [str(n) for n in g["cameras"]]
-    enc_t, enc_q_raw, dets = g["enc_t"], g["enc_q"], g["dets"]
-    dets = dets[(dets[:, 4] >= MIN_BALL_PX) & (dets[:, 4] <= MAX_BALL_PX)]  # recordings from before the size limits
+    dets, names, enc_t, enc_q_raw = load_gravity_recordings()
     use = [n for n in names if n in args.cameras]
     calibs = {n: CameraCalib.load(n) for n in use}
-    off = np.array(arm.joint_offsets)
-    m = gravity_measurements(dets, names, enc_t, enc_q_raw + off, calibs, model)
+    m = gravity_measurements(dets, names, enc_t, enc_q_raw + np.array(arm.joint_offsets), calibs, model)
     arcs = gravity_arcs(m)
     if len(arcs) < 3:
         raise SystemExit(f"only {len(arcs)} usable ball flights in {len(m['t'])} detections")
@@ -551,38 +590,62 @@ def cmd_gravity(args) -> int:
         sessions = overhead_sessions()
         qs = np.concatenate([np.load(p)["qs"] for p in sessions])
         corners = np.concatenate([np.load(p)["corners"] for p in sessions])
-        lift, f = lift_from_gravity(arm, calibs["overhead"], dets, names, enc_t, enc_q_raw, model, qs, corners)
+        others = {n: c for n, c in calibs.items() if n != "overhead"}
+        lift, f = lift_from_gravity(arm, calibs["overhead"], dets, names, enc_t, enc_q_raw, model, qs, corners,
+                                    others=others)
         oc = calibs["overhead"]
         oc.R, oc.p = f["R"].tolist(), f["p"].tolist()
         oc.steps["extrinsics"]["lift_from_gravity"] = True
         arm.joint_offsets = f["offsets"].tolist()
         arm.tag_R, arm.tag_p = f["tag_R"].tolist(), f["tag_p"].tolist()
         arm.steps["gravity"] = {"date": stamp(), "lift_offset_deg": float(np.degrees(lift))}
-        print("saved", oc.save(), arm.save())
-        arm = ArmCalib.load()
+        oc.save()
+        arm.save()
         calibs = {n: CameraCalib.load(n) for n in use}
         m = gravity_measurements(dets, names, enc_t, enc_q_raw + np.array(arm.joint_offsets), calibs, model)
         arcs = gravity_arcs(m)
-    fit = fit_g(m, arcs)
-    tilt_x, tilt_y = np.degrees(np.arctan2(fit["g"][1], -fit["g"][2])), np.degrees(np.arctan2(-fit["g"][0], -fit["g"][2]))
-    print(f"gravity from {len(arcs)} flights ({', '.join(use)}): |g| {fit['magnitude']:.2f} m/s^2 "
-          f"({100 * (fit['magnitude'] / 9.81 - 1):+.1f} %), tilt {fit['tilt_deg']:.2f} deg (about forward axis "
-          f"{tilt_x:+.2f}, about the lift axis {tilt_y:+.2f}); normalized RMS per flight "
-          f"{np.round(fit['per_arc_rms'], 2).tolist()}")
-    print("targets: tilt < 0.5 deg, |g| within 2 %. Tilt about the forward axis: the arm base / table isn't level "
-          "(or the overhead camera's roll is off); a scale error: check the printed sizes (`targets`) and the lens fits.")
+    fit = fit_g(m, arcs, n_cams=len(calibs))
+    tx, ty = tilts_deg(fit["g"])
+    # Uncertainty: leave one flight out.
+    jk = []
+    for i in range(len(arcs)):
+        fi = fit_g(m, [a for j, a in enumerate(arcs) if j != i], n_cams=len(calibs))
+        jk.append([*tilts_deg(fi["g"]), *fi["size_scale"]])
+    jk = np.array(jk)
+    se = np.sqrt(len(arcs) - 1) * jk.std(axis=0)
+    print(f"gravity from {len(arcs)} flights ({', '.join(use)}; |g| held at 9.81): tilt about the forward axis "
+          f"{tx:+.2f} +- {se[0]:.2f} deg, about the lift axis {ty:+.2f} +- {se[1]:.2f} deg; normalized RMS per "
+          f"flight median {np.median(fit['per_arc_rms']):.2f}")
+    for i, n in enumerate(calibs):
+        c = calibs[n]
+        c.size_scale = float(c.size_scale * fit["size_scale"][i])
+        c.steps["size_scale"] = {"date": stamp(), "flights": len(arcs), "uncertainty": float(se[2 + i])}
+        c.save()
+        print(f"  {n}: detected ball diameter / true {c.size_scale:.3f} +- {se[2 + i]:.3f} (saved; ranges from the "
+              "apparent size use it)")
+    if "gravity" in arm.steps:
+        arm.steps["gravity"]["lift_uncertainty_deg"] = float(se[1])
+        arm.save()
+    worst = max(abs(tx) + se[0], abs(ty) + se[1])
+    print("targets: tilts < 0.5 deg. " + ("Met." if worst < 0.5 else
+          "Not met yet: record more flights (`gravity` pools every recording) or, if the forward-axis tilt is "
+          "clearly nonzero, level the arm base / table side to side."))
     return 0
 
 
-def lift_from_gravity(arm: ArmCalib, overhead: CameraCalib, dets, names, enc_t, enc_q_raw, model, qs, corners):
+def lift_from_gravity(arm: ArmCalib, overhead: CameraCalib, dets, names, enc_t, enc_q_raw, model, qs, corners,
+                      others: dict | None = None):
     """The shoulder-lift offset the overhead calibration can't see: the one whose overhead camera pose (refitted
     with that offset from the tag data qs, corners) makes the ball flights fall straight down about the lift axis.
-    Returns the offset (rad) and that overhead fit."""
+    `others`: more calibrated cameras (wrist: its pose follows the arm, so it moves with the offset too); with two
+    cameras the flights are triangulated instead of ranged from the ball's apparent size. Returns the offset (rad)
+    and that overhead fit."""
     from scipy.optimize import brentq
 
     tag = TagDetector()
     links = Links(model)
     base = np.array(arm.joint_offsets)
+    others = others or {}
     cache = {}
 
     def at(lift: float):
@@ -590,8 +653,9 @@ def lift_from_gravity(arm: ArmCalib, overhead: CameraCalib, dets, names, enc_t, 
         d[1] = lift
         f = fit_overhead(links, overhead.Km, overhead.Dm, qs, corners, tag.object_points, fixed_offsets=d)
         c = CameraCalib(**{**overhead.__dict__, "R": f["R"].tolist(), "p": f["p"].tolist()})
-        m = gravity_measurements(dets, names, enc_t, enc_q_raw + f["offsets"], {"overhead": c}, model)
-        g = fit_g(m, gravity_arcs(m))["g"]
+        cals = {"overhead": c, **others}
+        m = gravity_measurements(dets, names, enc_t, enc_q_raw + f["offsets"], cals, model)
+        g = fit_g(m, gravity_arcs(m), n_cams=len(cals))["g"]
         cache[lift] = f
         return float(np.arctan2(-g[0], -g[2]))  # tilt about the lift axis (robot y at pan 0)
 
@@ -816,8 +880,9 @@ def main() -> int:
     p.add_argument("--seconds", type=float, default=12.0)
     p = sub.add_parser("gravity")
     p.add_argument("--port", help="servo bus serial port (not needed with --refit)")
-    p.add_argument("--cameras", nargs="+", default=["overhead"],
-                   help="cameras to fit gravity with (default overhead: the lift offset is solved with it)")
+    p.add_argument("--cameras", nargs="+", default=None,
+                   help="cameras to use (default: every camera with a calibrated pose; two cameras triangulate the "
+                        "flights, one ranges them from the ball's apparent size, much less precisely)")
     p.add_argument("--seconds", type=float, default=40.0)
     p.add_argument("--refit", action="store_true", help="no arm: refit from the newest saved recording")
     p.add_argument("--no-lift", action="store_true", help="only check gravity; don't solve the lift offset")

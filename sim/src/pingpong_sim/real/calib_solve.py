@@ -284,32 +284,61 @@ def measure_ball(p: np.ndarray, R: np.ndarray, cp: np.ndarray) -> np.ndarray:
     return np.stack([X[:, 0] / X[:, 2], X[:, 1] / X[:, 2], 2 * np.arcsin(np.minimum(BALL_RADIUS / rho, 1.0))], 1)
 
 
-def fit_gravity(arcs: list[dict]) -> dict:
-    """Ball flights, each {t (n,), R (n, 3, 3), p (n, 3) camera poses, z (n, 3), sigma (n, 3)} -> gravity vector
-    (3,), its magnitude and tilt from -z (deg), per-arc normalized RMS."""
-    inits = []
-    for a in arcs:  # monocular 3D points -> straight-line start
-        u = np.concatenate([a["z"][:, :2], np.ones((len(a["t"]), 1))], 1)
-        u /= np.linalg.norm(u, axis=1, keepdims=True)
-        rng = BALL_RADIUS / np.sin(a["z"][:, 2] / 2)
-        X = a["p"] + np.einsum("nij,nj->ni", a["R"], rng[:, None] * u)
-        t = a["t"] - a["t"][0]
-        A = np.stack([np.ones_like(t), t, 0.5 * t * t], 1)
-        coef = np.linalg.lstsq(A, X, rcond=None)[0]  # p0, v0, a (a is fitted jointly below)
-        inits.append(np.concatenate([coef[0], coef[1]]))
+def _arc_init(a: dict, k: float = 1.0) -> np.ndarray:
+    """Start (p0, v0) of a flight from its monocular 3D points (range from the apparent size, scale k)."""
+    u = np.concatenate([a["z"][:, :2], np.ones((len(a["t"]), 1))], 1)
+    u /= np.linalg.norm(u, axis=1, keepdims=True)
+    rng = BALL_RADIUS / np.sin(a["z"][:, 2] / (2 * k))
+    X = a["p"] + np.einsum("nij,nj->ni", a["R"], rng[:, None] * u)
+    t = a["t"] - a["t"][0]
+    A = np.stack([np.ones_like(t), t, 0.5 * t * t], 1)
+    coef = np.linalg.lstsq(A, X, rcond=None)[0]
+    return np.concatenate([coef[0], coef[1]])
+
+
+def fit_gravity(arcs: list[dict], fix_magnitude: bool = False, n_cams: int = 1) -> dict:
+    """Ball flights, each {t (n,), R (n, 3, 3), p (n, 3) camera poses, z (n, 3), sigma (n, 3), cam (n,) camera
+    index} -> gravity vector (3,), its magnitude and tilt from -z (deg), per-arc normalized RMS.
+    `fix_magnitude`: |g| = 9.81 and a size scale per camera (detected / true angular diameter) are fitted instead
+    of the magnitude: with one camera, range comes from the apparent size, and a biased size scales every distance.
+    The Jacobian is sparse (each flight's start depends only on its own points): finite differences perturb all
+    flights at once."""
+    from scipy.sparse import lil_matrix
+
+    nk = n_cams if fix_magnitude else 0
+    ng = 2 if fix_magnitude else 3
+    head = ng + nk
+    inits = [_arc_init(a, 1.0) for a in arcs]
+
+    def gvec(x):
+        if not fix_magnitude:
+            return x[:3]
+        a, b = x[0], x[1]  # tilts about y and x
+        return G * np.array([math.sin(a), -math.sin(b) * math.cos(a), -math.cos(a) * math.cos(b)])
 
     def res(x):
-        g = x[:3]
+        g = gvec(x)
         out = []
         for k, a in enumerate(arcs):
-            p0, v0 = x[3 + 6 * k: 6 + 6 * k], x[6 + 6 * k: 9 + 6 * k]
-            P = _fly(p0, v0, g, a["t"] - a["t"][0])
-            out.append(((measure_ball(P, a["R"], a["p"]) - a["z"]) / a["sigma"]).ravel())
+            o = head + 6 * k
+            P = _fly(x[o:o + 3], x[o + 3:o + 6], g, a["t"] - a["t"][0])
+            z = measure_ball(P, a["R"], a["p"])
+            if fix_magnitude:
+                z[:, 2] *= x[ng + a.get("cam", np.zeros(len(a["t"]), int))]
+            out.append(((z - a["z"]) / a["sigma"]).ravel())
         return np.concatenate(out)
 
-    x0 = np.concatenate([[0.0, 0.0, -G]] + inits)
-    sol = least_squares(res, x0, x_scale="jac")
-    g = sol.x[:3]
+    n_res = sum(3 * len(a["t"]) for a in arcs)
+    S = lil_matrix((n_res, head + 6 * len(arcs)), dtype=int)
+    row = 0
+    for k, a in enumerate(arcs):
+        m = 3 * len(a["t"])
+        S[row:row + m, :head] = 1
+        S[row:row + m, head + 6 * k: head + 6 * k + 6] = 1
+        row += m
+    x0 = np.concatenate([[0.0, 0.0] if fix_magnitude else [0.0, 0.0, -G], np.ones(nk)] + inits)
+    sol = least_squares(res, x0, x_scale="jac", jac_sparsity=S, method="trf")
+    g = gvec(sol.x)
     r = res(sol.x)
     per_arc, i = [], 0
     for a in arcs:
@@ -317,7 +346,8 @@ def fit_gravity(arcs: list[dict]) -> dict:
         per_arc.append(float(np.sqrt(np.mean(r[i:i + m] ** 2))))
         i += m
     tilt = float(np.degrees(np.arccos(np.clip(-g[2] / np.linalg.norm(g), -1, 1))))
-    return {"g": g, "magnitude": float(np.linalg.norm(g)), "tilt_deg": tilt, "per_arc_rms": per_arc}
+    return {"g": g, "magnitude": float(np.linalg.norm(g)), "tilt_deg": tilt, "per_arc_rms": per_arc,
+            "size_scale": sol.x[ng:ng + nk] if fix_magnitude else None}
 
 
 # ---------------------------------------------------------------------------------------------------- poses
