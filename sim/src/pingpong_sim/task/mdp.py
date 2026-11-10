@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import torch
+from pingpong_sim.ball import G
 from mjlab.managers.action_manager import ActionTerm, ActionTermCfg
 from mjlab.managers.event_manager import requires_model_fields
 
@@ -158,6 +159,12 @@ def bouncer_command(env) -> torch.Tensor:
     return _ctrl(env).obs_bouncer()
 
 
+def history(env) -> torch.Tensor:
+    """0.64 s of frames (one per 40 ms): ball estimate and velocity, tracked flag, blade face height and vertical
+    speed, predicted time to the hitting plane (160)."""
+    return _ctrl(env).obs_history()
+
+
 # -- observations (critic, privileged) -----------------------------------------------------------------------------
 
 
@@ -180,6 +187,11 @@ def launch_state(env) -> torch.Tensor:
     st = _st(env)
     left = (st.release - st.now).clamp(0, 1.0)
     return torch.stack([(left <= 0).float(), left], dim=-1)
+
+
+def mismatch(env) -> torch.Tensor:
+    """Gravity the filter and bouncer believe, relative to the true one, minus 1 (1)."""
+    return (_ctrl(env).filter.g / G - 1.0)[:, None]
 
 
 # -- rewards -------------------------------------------------------------------------------------------------------

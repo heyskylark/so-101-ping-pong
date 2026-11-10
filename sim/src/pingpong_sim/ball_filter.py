@@ -60,22 +60,23 @@ class BallFilterCfg:
     stamp_std: float = 0.002  # s, timestamp error per camera (calibration residual): adds (H v)^2 stamp_std^2 to R
 
 
-def _accel(v: torch.Tensor) -> torch.Tensor:
+def _accel(v: torch.Tensor, g=G) -> torch.Tensor:
     a = -DRAG_K * v.norm(dim=-1, keepdim=True) * v
-    a[..., 2] -= G
+    a[..., 2] -= g
     return a
 
 
-def flight(p: torch.Tensor, v: torch.Tensor, h: torch.Tensor):
-    """One RK4 step of length h (B,; may be negative) of gravity + drag flight."""
+def flight(p: torch.Tensor, v: torch.Tensor, h: torch.Tensor, g=G):
+    """One RK4 step of length h (B,; may be negative) of gravity + drag flight. `g`: gravity, a float or (B,) (what
+    a filter believes; the default is the true value)."""
     h = h[:, None]
-    k1p, k1v = v, _accel(v)
+    k1p, k1v = v, _accel(v, g)
     k2p = v + 0.5 * h * k1v
-    k2v = _accel(k2p)
+    k2v = _accel(k2p, g)
     k3p = v + 0.5 * h * k2v
-    k3v = _accel(k3p)
+    k3v = _accel(k3p, g)
     k4p = v + h * k3v
-    k4v = _accel(k4p)
+    k4v = _accel(k4p, g)
     return p + h / 6 * (k1p + 2 * k2p + 2 * k3p + k4p), v + h / 6 * (k1v + 2 * k2v + 2 * k3v + k4v)
 
 
@@ -193,20 +194,20 @@ def project(p: torch.Tensor, cam_R: torch.Tensor, cam_p: torch.Tensor):
 # what the robot runs every tick. tests/test_fast_paths.py keeps it equal to the batched torch version.
 
 
-def _accel_np(v: np.ndarray) -> np.ndarray:
+def _accel_np(v: np.ndarray, g: float = G) -> np.ndarray:
     a = -DRAG_K * math.sqrt(v @ v) * v
-    a[2] -= G
+    a[2] -= g
     return a
 
 
-def flight_np(p: np.ndarray, v: np.ndarray, h: float) -> tuple[np.ndarray, np.ndarray]:
-    k1v = _accel_np(v)
+def flight_np(p: np.ndarray, v: np.ndarray, h: float, g: float = G) -> tuple[np.ndarray, np.ndarray]:
+    k1v = _accel_np(v, g)
     k2p = v + 0.5 * h * k1v
-    k2v = _accel_np(k2p)
+    k2v = _accel_np(k2p, g)
     k3p = v + 0.5 * h * k2v
-    k3v = _accel_np(k3p)
+    k3v = _accel_np(k3p, g)
     k4p = v + h * k3v
-    k4v = _accel_np(k4p)
+    k4v = _accel_np(k4p, g)
     return p + h / 6 * (v + 2 * k2p + 2 * k3p + k4p), v + h / 6 * (k1v + 2 * k2v + 2 * k3v + k4v)
 
 
@@ -249,7 +250,7 @@ class _HistoryNp:
         return {k: b[a] + w * (b[c] - b[a]) for k, b in self.buf.items()}
 
 
-def _bounce_np(cfg: BallFilterCfg, p, v, p1, v1, P, h: float, a: dict, b: dict):
+def _bounce_np(cfg: BallFilterCfg, p, v, p1, v1, P, h: float, a: dict, b: dict, g: float = G):
     s0 = (p - a["center"]) @ a["normal"] - BALL_RADIUS
     s1 = (p1 - b["center"]) @ b["normal"] - BALL_RADIUS
     f = min(max(s0 / max(s0 - s1, 1e-9), 0.0), 1.0)
@@ -267,7 +268,7 @@ def _bounce_np(cfg: BallFilterCfg, p, v, p1, v1, P, h: float, a: dict, b: dict):
         return p1, v1, P
     e, kt = cfg.restitution, cfg.tangential_keep
     vout = vp - e * vn * nrm + kt * vt
-    pb, vb = flight_np(pc, vout, (1 - f) * h)
+    pb, vb = flight_np(pc, vout, (1 - f) * h, g)
     nn = np.outer(nrm, nrm)
     M = -e * nn + kt * (_EYE3 - nn)
     J = _EYE6.copy()
@@ -280,7 +281,7 @@ def _bounce_np(cfg: BallFilterCfg, p, v, p1, v1, P, h: float, a: dict, b: dict):
 
 
 def _propagate_one(cfg: BallFilterCfg, x: torch.Tensor, P: torch.Tensor, t0: float, t1: float,
-                   paddle: TickHistory | None):
+                   paddle: TickHistory | None, g: float = G):
     dt = max(t1 - t0, 0.0)
     if dt <= 0.0:
         return x, P
@@ -293,13 +294,13 @@ def _propagate_one(cfg: BallFilterCfg, x: torch.Tensor, P: torch.Tensor, t0: flo
     Q = _process_noise_np(cfg.accel_noise, h)
     for _ in range(n_steps):
         p, v = xs[:3], xs[3:]
-        p1, v1 = flight_np(p, v, h)
+        p1, v1 = flight_np(p, v, h, g)
         F = _transition_np(0.5 * (v + v1), h)
         Ps = F @ Ps @ F.T + Q
         t = t + h
         if hist is not None:
             pad_next = hist.at(t)
-            p1, v1, Ps = _bounce_np(cfg, p, v, p1, v1, Ps, h, pad, pad_next)
+            p1, v1, Ps = _bounce_np(cfg, p, v, p1, v1, Ps, h, pad, pad_next, g)
             pad = pad_next
         xs = np.concatenate([p1, v1])
     return (torch.tensor(xs, dtype=x.dtype)[None], torch.tensor(Ps, dtype=P.dtype)[None])
@@ -316,6 +317,8 @@ class BallFilter:
         self.last_meas = torch.full((num_envs,), -math.inf, device=device)  # time of the last accepted detection
         self.accepted = torch.zeros(num_envs, dtype=torch.long, device=device)  # counters for diagnostics
         self.rejected = torch.zeros(num_envs, dtype=torch.long, device=device)
+        # Gravity the filter believes, per world (training draws a mismatch; deployed: the true value).
+        self.g = torch.full((num_envs,), G, device=device)
 
     def reset(self, env_ids: torch.Tensor | None = None) -> None:
         ids = slice(None) if env_ids is None else env_ids
@@ -330,7 +333,7 @@ class BallFilter:
         vel). Worlds with t1 == t0 are returned unchanged. One world on the CPU takes the float64 numpy path (same
         steps; batched torch pays ~5 us of dispatch per tiny op, 10x the robot's control budget)."""
         if self.n == 1 and x.device.type == "cpu":
-            return _propagate_one(self.cfg, x, P, float(t0[0]), float(t1[0]), paddle)
+            return _propagate_one(self.cfg, x, P, float(t0[0]), float(t1[0]), paddle, float(self.g[0]))
         return self._propagate_batched(x, P, t0, t1, paddle)
 
     def _propagate_batched(self, x, P, t0, t1, paddle: TickHistory | None):
@@ -345,7 +348,7 @@ class BallFilter:
         pad = paddle.at(t, _PADDLE_KEYS) if paddle is not None else None
         for _ in range(n_steps):
             p, v = x[:, :3], x[:, 3:]
-            p1, v1 = flight(p, v, h)
+            p1, v1 = flight(p, v, h, self.g)
             F = _transition(0.5 * (v + v1), h)
             P = F @ P @ F.transpose(1, 2) + _process_noise(cfg.accel_noise, h)
             t = t + h
@@ -377,7 +380,7 @@ class BallFilter:
         e, kt = cfg.restitution, cfg.tangential_keep
         vout = vp - e * vn * nrm + kt * vt
         rem = (1 - f) * h[:, None]
-        pb, vb = flight(pc, vout, rem[:, 0])
+        pb, vb = flight(pc, vout, rem[:, 0], self.g)
         # Velocity map v -> v_out about the normal; restitution, friction and paddle-speed uncertainty.
         nn = nrm[:, :, None] * nrm[:, None, :]
         eye = torch.eye(3, device=p.device)
@@ -409,7 +412,7 @@ class BallFilter:
         x_f, P_f = self.propagate(self.x, self.P, self.t, t_to, paddle)
         # Out-of-order ones: predict the measurement at the (earlier) capture time from the current state.
         dt_b = torch.where(upd & ~fwd, dt, torch.zeros_like(dt))
-        pb, vb = flight(x_f[:, :3], x_f[:, 3:], dt_b)
+        pb, vb = flight(x_f[:, :3], x_f[:, 3:], dt_b, self.g)
         Phi = _transition(x_f[:, 3:], dt_b)
         zh, Hp, front = project(pb, cam_R, cam_p)
         H = torch.cat([Hp, torch.zeros_like(Hp)], dim=2) @ Phi  # (B, 3, 6)

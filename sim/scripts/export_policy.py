@@ -101,6 +101,7 @@ def main() -> None:
         # Geometry and planning settings the deploy loop must match (observations are relative to these).
         "task": {k: getattr(st.cfg, k) for k in ("target_xy", "hit_z", "apex", "trust_vel_std", "use_bouncer")},
         "bouncer": {k: v for k, v in asdict(st.ctrl.bouncer.cfg).items() if isinstance(v, (int, float, bool, tuple))},
+        "controller": {k: getattr(st.ctrl.cfg, k) for k in ("history_len", "history_stride")},
         "onnx_check": {"samples": int(len(x)), "max_abs_diff": float(diff)},
     }
     (out / "policy.json").write_text(json.dumps(spec, indent=2) + "\n")

@@ -32,13 +32,19 @@ from pingpong_sim.servo_actuator import encoder_pos, encoder_vel
 class TaskCfg:
     target_xy: tuple[float, float] = (0.40, 0.0)  # m, bounce point (blade centre at the ready pose)
     hit_z: float = 0.25  # m, blade face height at impact
-    apex: float = 0.25  # m, ball rise above the hitting plane
-    # The wrist camera is optional: present in 70 % of episodes.
-    cameras: tuple[CameraSimCfg, ...] = (OVERHEAD, replace(WRIST, enable_prob=0.7))
+    apex: float = 0.15  # m, ball rise above the hitting plane (0.25 left the overhead camera's view on the rig)
+    # The wrist camera is optional: present in 70 % of episodes. Timestamp biases up to +-15 ms (calibrated +-1 ms,
+    # but the rig's impact predictions ran 19-28 ms early for reasons not yet found: the policy must cope).
+    cameras: tuple[CameraSimCfg, ...] = (replace(OVERHEAD, stamp_bias_ms=(-15.0, 15.0)),
+                                         replace(WRIST, enable_prob=0.7, stamp_bias_ms=(-15.0, 15.0)))
     filter: BallFilterCfg = field(default_factory=BallFilterCfg)
-    bouncer: BouncerCfg = field(default_factory=BouncerCfg)
+    # Short stroke and follow-through: at a 0.15 m apex the default 0.12 / 0.15 s no longer fit between bounces.
+    bouncer: BouncerCfg = field(default_factory=lambda: BouncerCfg(stroke_time=0.10, follow=0.08))
     use_bouncer: bool = True  # run the scripted bouncer (residual policy base; off for the direct policy)
     trust_vel_std: float = 0.5  # m/s: the bouncer plans only on a converged track
+    # Gravity the ball filter and the bouncer believe, per episode, x the true one: their predictions are wrong in a
+    # way the policy can only find out from what happens (its history observation).
+    belief_gravity: tuple[float, float] = (0.85, 1.15)
     # Launch phase.
     drop_height: tuple[float, float] = (0.20, 0.50)  # m, ball centre above the hitting plane
     drop_offset: float = 0.03  # m, uniform per horizontal axis around the target
@@ -162,6 +168,7 @@ class PingPongState:
         # Pipeline and bookkeeping.
         self.rig.reset(env_ids, now)
         self.ctrl.reset(env_ids, now)
+        self.ctrl.set_gravity(env_ids, G * u(*cfg.belief_gravity))
         self._restart[env_ids] = True
         self.prev_vn[env_ids] = 0.0
         self.armed[env_ids] = False

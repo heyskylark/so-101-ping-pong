@@ -41,7 +41,7 @@ import torch
 
 import pingpong_sim.task  # noqa: F401  (registers the tasks)
 from mjlab.tasks.registry import load_env_cfg
-from pingpong_sim.controller import BounceController, OnnxPolicy
+from pingpong_sim.controller import BounceController, OnnxPolicy, controller_cfg_from_policy
 from pingpong_sim.kinematics import ArmKinematics
 from pingpong_sim.ball import BALL_RADIUS
 from pingpong_sim.real.arm import RATE, ArmSession, PlanBuilder, open_bus
@@ -132,6 +132,8 @@ class Run:
         self.kin = kin
         self.q_ready = torch.tensor([READY_JOINT_POS[j] for j in ARM_JOINTS])
         ccfg = task.controller_cfg()
+        if policy_dir:  # the bounce height, stroke and history the policy was trained with
+            ccfg = controller_cfg_from_policy(json.loads((policy_dir / "policy.json").read_text()), ccfg)
         ccfg = replace(ccfg, apex=apex if apex is not None else ccfg.apex,
                        bouncer=replace(ccfg.bouncer, **(bouncer or {})))
         self.ctrl = BounceController(ccfg, kin, self.q_ready, 1, 1.0 / RATE, "cpu")

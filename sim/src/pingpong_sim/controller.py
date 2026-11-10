@@ -69,6 +69,29 @@ class ControllerCfg:
     bouncer: BouncerCfg = field(default_factory=BouncerCfg)
     use_bouncer: bool = True  # run the scripted bouncer (residual policy base; off for the direct policy)
     trust_vel_std: float = 0.5  # m/s: the bouncer plans only on a converged track
+    # History observation: a frame every `history_stride` ticks, the last `history_len` frames (16 x 40 ms = 0.64 s,
+    # at least one bounce cycle), so the policy can compare what was predicted with what happened and adapt.
+    history_len: int = 16
+    history_stride: int = 4
+
+
+HISTORY_FRAME = 10  # ball position vs target (3), velocity (3), tracked, face height vs target, face vz, time to impact
+
+
+def controller_cfg_from_policy(spec: dict, base: ControllerCfg) -> ControllerCfg:
+    """The controller settings an exported policy was trained with (its policy.json "task", "bouncer" and
+    "controller" entries) over `base` (the current task's): a policy keeps its bounce height, stroke and history
+    when the task defaults move on."""
+    from dataclasses import fields
+
+    t, c = spec.get("task", {}), spec.get("controller", {})
+    known = {f.name for f in fields(BouncerCfg)}
+    b = {k: tuple(v) if isinstance(v, list) else v for k, v in spec.get("bouncer", {}).items() if k in known}
+    return replace(base, target_xy=tuple(t.get("target_xy", base.target_xy)), hit_z=t.get("hit_z", base.hit_z),
+                   apex=t.get("apex", base.apex), trust_vel_std=t.get("trust_vel_std", base.trust_vel_std),
+                   use_bouncer=t.get("use_bouncer", base.use_bouncer), bouncer=replace(base.bouncer, **b),
+                   history_len=c.get("history_len", base.history_len),
+                   history_stride=c.get("history_stride", base.history_stride))
 
 
 class BounceController:
@@ -93,6 +116,9 @@ class BounceController:
         self.pred_t, self.pred_p, self.pred_v = torch.full((num_envs,), torch.inf, device=device), z3.clone(), z3.clone()
         self.base = q_ready.expand(num_envs, 5).clone()  # bouncer goal (ready without a plan)
         self._restart = torch.zeros(num_envs, dtype=torch.bool, device=device)
+        self.history = torch.zeros(num_envs, cfg.history_len, HISTORY_FRAME, device=device)
+        self._history_fresh = torch.ones(num_envs, dtype=torch.bool, device=device)
+        self._tick = 0
 
     def reset(self, env_ids: torch.Tensor, now: float) -> None:
         """New episode for env_ids (arm teleported, ball relaunched): forget the track and the plan; the arm history
@@ -100,6 +126,14 @@ class BounceController:
         self.filter.reset(env_ids)
         self.bouncer.reset(env_ids, now)
         self._restart[env_ids] = True
+        self._history_fresh[env_ids] = True
+        self.history[env_ids] = 0.0  # the first observation after a reset comes before the next update
+
+    def set_gravity(self, env_ids: torch.Tensor, g: torch.Tensor) -> None:
+        """The gravity the ball filter and the bouncer assume for env_ids (B_ids,) (training: a mismatch with the
+        simulated ball's; deployed: the true value, the default)."""
+        self.filter.g[env_ids] = g
+        self.bouncer.set_gravity(env_ids, g)
 
     def sense(self, now: float, q_enc: torch.Tensor, dq_enc: torch.Tensor) -> None:
         self.now = now
@@ -123,6 +157,24 @@ class BounceController:
         self.pred_t, self.pred_p, self.pred_v = self.bouncer.predict(plan_p, self.est_v)
         if self.cfg.use_bouncer:
             self.base = self.bouncer.step(now, plan_p, self.est_v, prediction=(self.pred_t, self.pred_p, self.pred_v))
+        self._push_history()
+
+    def _push_history(self) -> None:
+        """A history frame every `history_stride` ticks; worlds just reset fill the whole history with it."""
+        fresh = self._history_fresh
+        if self._tick % self.cfg.history_stride == 0 or bool(fresh.any()):
+            trk = self.tracked[:, None]
+            face, _, vel = paddle_from_encoders(self.kin, self.q_enc, self.dq_enc)
+            ok = torch.isfinite(self.pred_t)
+            t = torch.where(ok, self.pred_t, torch.full_like(self.pred_t, 1.2)).clamp(0, 1.2)
+            frame = torch.cat([torch.where(trk, self.est_p - self.target, torch.zeros_like(self.est_p)),
+                               torch.where(trk, self.est_v, torch.zeros_like(self.est_v)), trk.float(),
+                               (face[:, 2] - self.face_target[2])[:, None], vel[:, 2:3], t[:, None]], dim=-1)
+            if self._tick % self.cfg.history_stride == 0:
+                self.history = torch.cat([self.history[:, 1:], frame[:, None]], dim=1)
+            self.history = torch.where(fresh[:, None, None], frame[:, None].expand_as(self.history), self.history)
+            self._history_fresh[:] = False
+        self._tick += 1
 
     def goal_base(self) -> torch.Tensor:
         """What the action is added to: the bouncer goal (residual) or the ready pose (direct)."""
@@ -164,11 +216,17 @@ class BounceController:
         t = (self.bouncer.t_hit - self.now).clamp(-0.2, 1.2)
         return torch.cat([self.base - self.q_ready, t[:, None]], dim=-1)
 
+    def obs_history(self) -> torch.Tensor:
+        """The last `history_len` frames, oldest first, one every `history_stride` ticks: ball estimate vs the impact
+        target and its velocity, tracked flag, blade face height vs target and vertical speed, predicted time to the
+        hitting plane (capped at 1.2 s) (history_len x 10)."""
+        return self.history.reshape(self.n, -1)
+
 
 # Actor observation term name (task config, policy.json) -> BounceController method. "actions" (the previous raw
 # actions) is kept by the policy runner.
 OBS_TERMS = {"joint_pos": "obs_joint_pos", "joint_vel": "obs_joint_vel", "paddle": "obs_paddle", "ball": "obs_ball",
-             "impact": "obs_impact", "bouncer": "obs_bouncer"}
+             "impact": "obs_impact", "bouncer": "obs_bouncer", "history": "obs_history"}
 
 
 class OnnxPolicy:

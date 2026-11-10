@@ -53,7 +53,7 @@ DEFAULT_RANDOMIZATION: dict[str, tuple] = {
     "load_friction_motor": ("scale", 1.20),  # sharp: the fit's cost rose 155 % at 10 % of its range
     "stribeck_scale": ("scale", 2.00),
     "dtheta_stribeck": ("scale", 1.50),
-    "delay": ("range", 0.004, 0.020),
+    "delay": ("range", 0.0, 0.020),
     "feedback_delay": ("range", 0.0, 0.006),
     "max_current": ("scale", 1.25),
     "gear_stiffness": ("log_range", 80.0, 600.0),

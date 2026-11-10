@@ -61,9 +61,9 @@ class BouncerCfg:
     feedforward: bool = True  # invert the identified tracking model (else send the plan as the goal)
 
 
-def apex_speed(h: float) -> float:
+def apex_speed(h: float, g: float = G) -> float:
     """Upward speed that reaches height h under gravity + quadratic drag: h = ln(1 + k v^2 / g) / (2 k)."""
-    return math.sqrt(G / DRAG_K * (math.exp(2 * DRAG_K * h) - 1))
+    return math.sqrt(g / DRAG_K * (math.exp(2 * DRAG_K * h) - 1))
 
 
 def hermite(t, t0, T, p0, v0, p1, v1):
@@ -91,7 +91,9 @@ class ScriptedBouncer:
         self.lead = lead if lead is not None else torch.full((num_envs,), lead_s, device=dev)
         self.target = torch.tensor(cfg.target_xy, device=dev)
         self.z_ball = cfg.hit_z + BALL_RADIUS
-        self.vz_out = apex_speed(cfg.apex)
+        # Gravity the bouncer believes, per world (with its filter's: training draws a mismatch; deployed: true).
+        self.g = torch.full((num_envs,), G, device=dev)
+        self.vz_out = torch.full((num_envs,), apex_speed(cfg.apex), device=dev)
         self.A_inv = torch.linalg.inv(torch.tensor(tm["A"], device=dev))
         self.B = torch.tensor(tm["B"], device=dev)
         self.c = torch.tensor(tm["c"], device=dev)
@@ -107,6 +109,11 @@ class ScriptedBouncer:
         self.plan_speed = z.clone()  # paddle speed along the normal at impact [m/s]
         self.plan_tilt = z.clone()  # face tilt from vertical [rad]
         self.plan_ik_err = z.clone()  # m
+
+    def set_gravity(self, env_ids: torch.Tensor, g: torch.Tensor) -> None:
+        """The gravity env_ids' predictions and plans assume (B_ids,)."""
+        self.g[env_ids] = g
+        self.vz_out[env_ids] = torch.sqrt(g / DRAG_K * (math.exp(2 * DRAG_K * self.cfg.apex) - 1))
 
     def reset(self, env_ids: torch.Tensor, now: float) -> None:
         """Drop the plans of env_ids: hold the ready pose until the next plan (episode reset at time `now`)."""
@@ -152,7 +159,7 @@ class ScriptedBouncer:
         dt, z = self.cfg.predict_dt, self.z_ball
         ps, vs = p[0].double().numpy(), v[0].double().numpy()
         for k in range(int(self.cfg.predict_horizon / dt)):
-            pn, vn = flight_np(ps, vs, dt)
+            pn, vn = flight_np(ps, vs, dt, float(self.g[0]))
             if ps[2] >= z and pn[2] < z and vn[2] < 0:
                 f = (ps[2] - z) / max(ps[2] - pn[2], 1e-9)
                 return (torch.tensor([(k + f) * dt], dtype=p.dtype), torch.tensor(ps + f * (pn - ps), dtype=p.dtype)[None],
@@ -168,7 +175,7 @@ class ScriptedBouncer:
         p_hit, v_hit = p.clone(), v.clone()
         found = torch.zeros(self.n, dtype=torch.bool, device=self.dev)
         for k in range(int(cfg.predict_horizon / dt)):
-            p_next, v_next = flight(p, v, h)
+            p_next, v_next = flight(p, v, h, self.g)
             cross = (~found) & (p[:, 2] >= self.z_ball) & (p_next[:, 2] < self.z_ball) & (v_next[:, 2] < 0)
             f = ((p[:, 2] - self.z_ball) / (p[:, 2] - p_next[:, 2]).clamp_min(1e-9))[:, None]
             t_hit = torch.where(cross, (k + f[:, 0]) * dt, t_hit)
@@ -208,7 +215,7 @@ class ScriptedBouncer:
         xy = self.target + d * (cfg.reach / r).clamp(max=1.0)
         # Outgoing velocity: up to the apex, back toward the target.
         v_out = torch.zeros_like(v_in)
-        v_out[:, :2] = cfg.steer_gain * (self.target - xy) / (2 * self.vz_out / G)
+        v_out[:, :2] = cfg.steer_gain * (self.target - xy) / (2 * self.vz_out / self.g)[:, None]
         v_out[:, 2] = self.vz_out
         n = v_out - v_in
         n = n / n.norm(dim=1, keepdim=True)

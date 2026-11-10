@@ -28,7 +28,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from pingpong_sim.controller import BounceController, OnnxPolicy, paddle_from_encoders
+from pingpong_sim.controller import BounceController, OnnxPolicy, controller_cfg_from_policy, paddle_from_encoders
 from pingpong_sim.real.sim_backend import CpuWorld
 from pingpong_sim.task.state import bounce_events
 
@@ -38,7 +38,8 @@ class Runner:
         torch.manual_seed(seed)
         spec = json.loads((policy_dir / "policy.json").read_text())
         self.w = w = CpuWorld(spec["task_id"])
-        self.ctrl = BounceController(w.task.controller_cfg(), w.kin, w.q_ready, 1, w.dt, "cpu")
+        self.ctrl = BounceController(controller_cfg_from_policy(spec, w.task.controller_cfg()), w.kin, w.q_ready, 1,
+                                     w.dt, "cpu")
         self.policy = OnnxPolicy(policy_dir, self.ctrl)
 
     def sense(self) -> None:
