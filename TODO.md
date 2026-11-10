@@ -453,9 +453,14 @@ drifting** parameters (this paddle's restitution, latency, backlash, sag), which
        time is essential. Failures under randomization: feedforward model is the nominal servo's. Optional: run
        it on the real arm (ball state from the cameras + ball filter) as a baseline/first demo.
 6. [x] RL in mjlab (`residual_v1` deploy candidate; sim2sim, ONNX export).
-7. [ ] Cameras (overhead + wrist UVC, §3) + calibration (extrinsics, wrist mount, timestamp offsets) + latency:
-       code done and self-tested, needs the hardware.
-8. [ ] Deploy: `run_robot.py` done in sim, needs the hardware.
+7. [x] Cameras (overhead + wrist UVC, §3) + calibration (extrinsics, wrist mount, timestamp offsets, lift offset
+       from the paddle height; resting-ball level check). Results in §3 "Calibration".
+8. [ ] Deploy. First real run, scripted bouncer, 60 s (`measurements/runs/2026-11-09_221010`): 1–3 bounces per
+       ball, the ball leaves backwards (toward the base). Tracking agrees with each camera to 1–2 cm; passive first
+       hits (arm still at ready) see a level paddle (−0.2 to −1.0°). Active hits: paddle tilt vs the bouncer's
+       intent +1.5° median (tip-up) with 5.2° spread (the elbow-only stroke tilts the face at 50–170°/s), and the
+       face moves toward the base at impact (median −0.07 m/s, rubber grips): both push ~5 cm/bounce backwards.
+       Next: `residual_v1` on the real arm (sim check: 43 bounces in 20 s).
 
 ## Decisions
 
