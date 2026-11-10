@@ -1,6 +1,7 @@
 """mjlab actuator for the SO-101's STS3215 servos: the fitted servo model (servo_model.py) with domain randomization.
 
-Fit: measurements/servo/fit_2026-11-08_221524 (assets/actuators/sts3215_12v_fit.json). With `randomize`, every
+Fit: measurements/servo/fit_2026-11-10_093618 (assets/actuators/sts3215_12v_fit.json; the 2026-11-08 recording
+plus three recordings of the bouncer's own strokes, `record_servos.py strokes`). With `randomize`, every
 world draws its own servo at each episode reset, around the fit:
 
 - `scale` params: fit x exp(U(-ln f, ln f)), f wider for parameters the recording identified poorly
@@ -8,7 +9,7 @@ world draws its own servo at each episode reset, around the fit:
 - `range` params: U(lo, hi), `log_range`: log-uniform. Gear stiffness spans 80-600 N m/rad, from about the
   fit's stiffness down to where a neighbour's step moves a holding joint ~2x as much as on the real arm (the real
   arm hunts under hard commands, likely PLA flex the model doesn't have);
-- command delay (host -> servo goal, fitted 8.7 ms) 4-20 ms: the deployed loop adds its own latency;
+- command delay (host -> servo goal, fitted 3.7 ms) 4-20 ms: the deployed loop adds its own latency;
 - supply voltage 11.5-12.3 V (logged range under load);
 - a disturbance torque per joint: Ornstein-Uhlenbeck noise, std drawn per world, for the flex-driven hunting.
 
