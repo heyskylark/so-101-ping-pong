@@ -13,10 +13,11 @@ uv run scripts/make_sts3215_12v_params.py       # regenerate the 12 V servo para
 uv run scripts/record_servos.py record --sim    # servo recording plan against the sim (dry run) -> build/servo_dryrun/
 uv run scripts/record_servos.py map --port /dev/ttyACM0      # real arm, once: joint directions -> measurements/servo/
 uv run scripts/record_servos.py record --port /dev/ttyACM0   # real arm: ~8 min recording -> measurements/servo/<time>/
+uv run scripts/record_servos.py strokes --port /dev/ttyACM0  # real arm, no ball: the bouncer's own strokes (~50 s) [--stroke-time --follow --apexes]
 uv run scripts/plot_servo_log.py <recording dir>             # goal vs measured per joint and pose
-uv run scripts/fit_servos.py                    # fit servo model, delays, gear compliance to a recording (CMA-ES, GPU)
-uv run scripts/identify_tracking.py             # linear tracking model of the servoed arm -> assets/actuators/tracking_model.json
-uv run scripts/run_bouncer.py [--randomize] [--ball-latency 30 --ball-noise 2]   # scripted bouncer, many worlds
+uv run scripts/fit_servos.py --run <recording> [<strokes recording> ...] --stroke-weight 4   # servo model fit (CMA-ES, GPU)
+uv run scripts/identify_tracking.py [--from <strokes recording>]   # tracking model for the bouncer's feedforward
+uv run scripts/run_bouncer.py [--randomize] [--ball-latency 30 --ball-noise 2] [--apex --stroke-time --follow --impact-bias --predictor-gravity]   # scripted bouncer, many worlds
 uv run scripts/run_bouncer.py --cameras overhead wrist [--ideal-cameras] [--overhead-long y]  # ball state from simulated cameras + filter
 MUJOCO_GL=egl uv run scripts/render_camera_views.py      # camera previews for docs/camera_setup.md
 MUJOCO_GL=egl uv run scripts/run_bouncer.py --envs 2 --lead 0 --video            # + build/bouncer.mp4
@@ -25,13 +26,14 @@ uv run scripts/train.py PingPong-Bounce-Residual --env.scene.num-envs 4096      
 uv run scripts/eval_task.py --checkpoint logs/rsl_rl/pingpong_residual/<run>/model_<n>.pt   # + bounce quality, residual size, timing
 uv run scripts/play.py PingPong-Bounce-Residual --checkpoint-file <model.pt>     # interactive viewer
 uv run scripts/export_policy.py logs/rsl_rl/pingpong_residual/<run>/model_<n>.pt --name <name>  # -> policies/<name>/ (ONNX + spec)
-uv run scripts/sim2sim.py policies/<name> --episodes 96 --workers 16              # exported policy on CPU MuJoCo, deploy code path
+uv run scripts/sim2sim.py policies/<name> --episodes 96 --workers 16 [--belief-gravity 0.89]   # exported policy on CPU MuJoCo, deploy code path
 uv run pytest tests                              # fast paths (one CPU world) == batched paths (training)
 # Real rig (docs/hardware_setup.md, "Bring-up and calibration"):
 uv run scripts/make_calib_targets.py            # printable AprilTag + ChArUco (Letter, exact scale) -> build/calib_targets.pdf
 uv run scripts/cameras.py list|assign|preview|color     # camera devices, exposure, ball detection
 uv run scripts/calibrate.py selftest|targets|intrinsics|overhead|wrist|timing|gravity
-uv run scripts/run_robot.py --port /dev/ttyACM0 [--policy policies/residual_v1 | --scripted]   # 100 Hz on the arm
+uv run scripts/run_robot.py --port /dev/ttyACM0 [--policy policies/residual_v1 | --scripted [--apex --stroke-time --follow --impact-bias]]   # 100 Hz on the arm
+uv run scripts/run_robot.py --port /dev/ttyACM0 --pop 1.4   # pop test: a ball resting on the blade launched straight up, repeatedly
 uv run scripts/run_robot.py --sim --seconds 60  # same loop against the simulated arm, ball and cameras
 ```
 
