@@ -30,22 +30,16 @@ import json
 import signal
 import sys
 import time
-from collections import deque
-from dataclasses import dataclass, field
 from pathlib import Path
 
-import mujoco
 import numpy as np
-from scipy.optimize import least_squares
 
-from pingpong_sim.robot import FIRMWARE_P, READY_JOINT_POS, get_spec
-from pingpong_sim.servo_bus import JOINTS, RAD_PER_TICK, FeetechBus, JointMap, SimBus
+from pingpong_sim.real.arm import (JOINT_MAP, RATE, V_RETREAT, WATCHDOG, Abort, ArmModel, Plan, PlanBuilder, Watchdog,
+                                   check_plan, gain_profile, open_bus)
+from pingpong_sim.robot import READY_JOINT_POS
+from pingpong_sim.servo_bus import JOINTS, RAD_PER_TICK, JointMap, SimBus
 
 REPO = Path(__file__).resolve().parents[2]
-JOINT_MAP = REPO / "measurements" / "servo" / "joint_map.json"
-RATE = 100.0  # Hz, command/read loop
-V_MOVE = 0.5  # rad/s, peak joint speed of transitions between poses
-V_RETREAT = 0.3  # rad/s, return to the start pose
 POSES = {"ready": (0.40, 0.25), "near_low": (0.35, 0.20), "far_high": (0.45, 0.30)}  # blade centre (x, z) [m]
 STEP_AMPS = {j: (0.05, 0.15, 0.30) for j in JOINTS} | {"wrist_roll": (0.10, 0.30, 0.80)}
 STEP_HOLD = 0.7  # s
@@ -53,18 +47,6 @@ CHIRP = dict(f0=0.3, f1=5.0, seconds=12.0, v_peak=1.5)  # amplitude min(A0, v_pe
 CHIRP_A0 = {j: 0.12 for j in JOINTS} | {"wrist_roll": 0.30}
 REVERSAL = dict(amp=0.05, period=4.0, cycles=2)
 BOUNCE = dict(seconds=20.0, amp=0.06, freqs=(0.7, 1.3, 2.1, 3.4))
-TABLE_Z = -0.0024  # base mounting face (bottom of the base mesh) in the robot frame
-TABLE_MARGIN = 0.02  # m
-LIMIT_MARGIN = 0.05  # rad inside the sim joint range
-TICK_MARGIN = 10  # ticks inside the servo position limits
-WATCHDOG = dict(error=0.35, seconds=0.4, temp=65.0, volt=10.0, read_failures=5)
-
-
-def gain_profile(d_gain: int = 0) -> dict[str, dict]:
-    """Firmware gains for the recording. Acceleration 0 = no firmware acceleration ramp (what the arm reads now;
-    the sim doesn't model a ramp)."""
-    return {j: {"P_Coefficient": FIRMWARE_P[j], "I_Coefficient": 0, "D_Coefficient": d_gain, "Acceleration": 0}
-            for j in JOINTS}
 
 
 # Directions of positive motion in the sim convention (checked by `map`).
@@ -81,51 +63,6 @@ SIM_START = np.array([0.0, -1.70, 1.69, -1.76, 0.026])
 
 
 # ---------------------------------------------------------------------------------------------------- plan
-
-@dataclass
-class Plan:
-    q: np.ndarray  # (T, 5) goal [rad] at RATE
-    seg: np.ndarray  # (T,) segment index
-    segments: list[dict] = field(default_factory=list)
-
-    @property
-    def seconds(self) -> float:
-        return len(self.q) / RATE
-
-
-class PlanBuilder:
-    def __init__(self, start: np.ndarray):
-        self.q = [start[None].copy()]
-        self.seg = [np.array([0])]
-        self.segments = [{"name": "start", "kind": "hold"}]
-
-    @property
-    def last(self) -> np.ndarray:
-        return self.q[-1][-1]
-
-    def add(self, q: np.ndarray, **info) -> None:
-        self.segments.append(info)
-        self.q.append(q)
-        self.seg.append(np.full(len(q), len(self.segments) - 1))
-
-    def move(self, target: np.ndarray, v: float = V_MOVE, **info) -> None:
-        delta = target - self.last
-        seconds = max(1.0, 1.875 * np.abs(delta).max() / v)  # minimum jerk: peak speed 1.875 delta / T
-        s = np.linspace(0, 1, int(seconds * RATE) + 1)[1:]
-        s = 10 * s**3 - 15 * s**4 + 6 * s**5
-        self.add(self.last + s[:, None] * delta, kind="move", **info)
-
-    def hold(self, seconds: float, **info) -> None:
-        self.add(np.repeat(self.last[None], int(seconds * RATE), axis=0), kind="hold", **info)
-
-    def offsets(self, base: np.ndarray, j: int, offsets: np.ndarray, **info) -> None:
-        q = np.repeat(base[None], len(offsets), axis=0)
-        q[:, j] += offsets
-        self.add(q, **info)
-
-    def build(self) -> Plan:
-        return Plan(np.concatenate(self.q), np.concatenate(self.seg), self.segments)
-
 
 def step_offsets(amps) -> np.ndarray:
     seq = [a * s for a in amps for s in (1, 0, -1, 0)]
@@ -179,115 +116,7 @@ def build_plan(start: np.ndarray, poses: dict[str, np.ndarray]) -> Plan:
     return b.build()
 
 
-# ---------------------------------------------------------------------------------------------------- sim checks
-
-class Kinematics:
-    """CPU MuJoCo model of the robot for IK and plan checks."""
-
-    PAYLOAD = ("paddle_visual", "holder_base", "holder_cap", "camera_mount", "camera")
-
-    def __init__(self):
-        self.m = get_spec().compile()
-        self.d = mujoco.MjData(self.m)
-        self.adr = np.array([self.m.jnt_qposadr[self.m.joint(j).id] for j in JOINTS])
-        self.range = np.array([self.m.jnt_range[self.m.joint(j).id] for j in JOINTS])
-        self.face = self.m.site("blade_face_cap").id
-        self.holder = self.m.body("paddle_holder").id
-        self.blade = self.m.geom("blade_collision").id
-        self.paddle = self.m.body("paddle").id
-        self.verts = {}
-        for name in self.PAYLOAD:
-            g = self.m.geom(name).id
-            mid = self.m.geom_dataid[g]
-            v = self.m.mesh_vert[self.m.mesh_vertadr[mid]:self.m.mesh_vertadr[mid] + self.m.mesh_vertnum[mid]]
-            self.verts[g] = v[:: max(1, len(v) // 1500)]
-
-    def forward(self, q: np.ndarray) -> None:
-        self.d.qpos[self.adr] = q
-        mujoco.mj_forward(self.m, self.d)
-
-    def ik(self, x: float, z: float, seed: np.ndarray) -> np.ndarray:
-        """Joint angles putting the cap-side face centre at (x, 0, z), face level and up, paddle pointing along x."""
-
-        def res(q):
-            self.d.qpos[self.adr] = q
-            mujoco.mj_kinematics(self.m, self.d)
-            n = self.d.site_xmat[self.face].reshape(3, 3)[:, 2]
-            axis = self.d.xmat[self.holder].reshape(3, 3)[:, 2]
-            return np.r_[self.d.site_xpos[self.face] - (x, 0, z), 0.3 * (n - (0, 0, 1)), 0.1 * axis[1]]
-
-        r = least_squares(res, seed, bounds=(self.range[:, 0], self.range[:, 1]), xtol=1e-12, ftol=1e-12)
-        if r.cost > 1e-8:
-            raise RuntimeError(f"no level-blade IK solution at x={x}, z={z} (cost {r.cost:.1e})")
-        return r.x
-
-    def clearance(self) -> float:
-        """Lowest payload point (paddle, holder, camera) above the table [m]."""
-        z = min((v @ self.d.geom_xmat[g].reshape(3, 3).T + self.d.geom_xpos[g])[:, 2].min()
-                for g, v in self.verts.items())
-        return z - TABLE_Z
-
-    def blade_hits(self) -> list[str]:
-        """Arm geoms the blade collides with."""
-        hits = []
-        for c in self.d.contact[: self.d.ncon]:
-            if self.blade in (c.geom1, c.geom2):
-                other = c.geom2 if c.geom1 == self.blade else c.geom1
-                if self.m.geom_bodyid[other] != self.paddle:
-                    hits.append(self.m.body(self.m.geom_bodyid[other]).name)
-        return hits
-
-
-def check_plan(plan: Plan, kin: Kinematics, servo_limits: np.ndarray, joint_map: JointMap) -> list[str]:
-    """Problems with the plan; empty if it's safe to run."""
-    problems = []
-    lo, hi = kin.range[:, 0] + LIMIT_MARGIN, kin.range[:, 1] - LIMIT_MARGIN
-    raw = np.array([joint_map.to_raw(q) for q in plan.q[:: int(RATE // 25)]])
-    for i, j in enumerate(JOINTS):
-        q = plan.q[:, i]
-        motion = plan.q[1:, i] != plan.q[:-1, i]
-        if motion.any() and (q.min() < lo[i] - 1e-9 or q.max() > hi[i] + 1e-9):
-            # The start pose may sit outside the margin (wherever the arm rests); motion must not go further out.
-            start = plan.q[0, i]
-            if q.min() < min(lo[i], start) - 1e-6 or q.max() > max(hi[i], start) + 1e-6:
-                problems.append(f"{j}: goal {np.degrees(q.min()):.0f}..{np.degrees(q.max()):.0f} deg leaves the sim "
-                                f"range {np.degrees(kin.range[i, 0]):.0f}..{np.degrees(kin.range[i, 1]):.0f} deg")
-        # As above: the resting start may sit past a limit (the servo clamps that goal); motion must not go further.
-        r0 = raw[0, i]
-        lo_t, hi_t = servo_limits[i, 0] + TICK_MARGIN, servo_limits[i, 1] - TICK_MARGIN
-        if raw[:, i].min() < min(lo_t, r0) - 1 or raw[:, i].max() > max(hi_t, r0) + 1:
-            problems.append(f"{j}: goal ticks {raw[:, i].min():.0f}..{raw[:, i].max():.0f} outside the servo limits "
-                            f"{servo_limits[i, 0]:.0f}..{servo_limits[i, 1]:.0f}")
-    kin.forward(plan.q[0])
-    start_clear = kin.clearance()
-    if start_clear < -0.01:
-        problems.append(f"the start pose puts the payload {-start_clear * 1000:.0f} mm below the table: the joint map "
-                        f"doesn't match the arm (rerun `map`)")
-        return problems
-    worst = {}
-    near_start = {"start", f"to_{next(iter(POSES))}", "to_start", "end"}
-    for k in range(0, len(plan.q), int(RATE // 50)):
-        kin.forward(plan.q[k])
-        seg = plan.segments[plan.seg[k]]["name"]
-        # Leaving and returning to the start pose may pass as low as the start itself (the arm may rest low).
-        floor = min(TABLE_MARGIN, start_clear - 0.005) if seg in near_start else TABLE_MARGIN
-        c = kin.clearance()
-        if c < floor and (seg not in worst or c < worst[seg][0]):
-            worst[seg] = (c, k / RATE)
-        hits = kin.blade_hits()
-        if hits:
-            problems.append(f"{seg} at {k / RATE:.1f} s: blade touches {sorted(set(hits))}")
-            break
-    for seg, (c, t) in worst.items():
-        problems.append(f"{seg} at {t:.1f} s: payload {c * 1000:.0f} mm above the table (min {TABLE_MARGIN * 1000:.0f})")
-    return problems
-
-
 # ---------------------------------------------------------------------------------------------------- run
-
-class Abort(Exception):
-    pass
-
 
 class Recorder:
     def __init__(self, bus, joint_map: JointMap):
@@ -295,12 +124,8 @@ class Recorder:
         self.rows: dict[str, list] = {k: [] for k in ("t_cmd", "t_read", "goal", "pos", "vel", "load", "volt",
                                                       "temp", "current", "seg", "phase")}
         self.read_failures = 0
-        self.over_since = None
         self.t0 = None
-        # Single corrupted samples happen on this bus (e.g. one 80 C reading between 30 C ones): temperature and
-        # voltage trip on the median of the last 0.5 s.
-        self.temp_hist: deque = deque(maxlen=int(0.5 * RATE))
-        self.volt_hist: deque = deque(maxlen=int(0.5 * RATE))
+        self.watchdog = Watchdog()
 
     def state_rad(self):
         s = self.bus.read_state()
@@ -332,28 +157,9 @@ class Recorder:
                                           seg[k], phase)):
                 self.rows[key].append(v)
             if watchdog:
-                self._check(goal, pos, s, t_read)
+                self.watchdog.check(goal, pos, s.temperature, s.voltage, t_read)
             n += 1
             self.bus.sleep_until(start + n / RATE)
-
-    def _check(self, goal, pos, s, t) -> None:
-        err = np.abs(goal - pos)
-        if err.max() > WATCHDOG["error"]:
-            self.over_since = self.over_since if self.over_since is not None else t
-            if t - self.over_since > WATCHDOG["seconds"]:
-                j = JOINTS[int(err.argmax())]
-                raise Abort(f"{j} is {np.degrees(err.max()):.0f} deg from its goal for {WATCHDOG['seconds']} s")
-        else:
-            self.over_since = None
-        self.temp_hist.append(s.temperature)
-        self.volt_hist.append(s.voltage)
-        if len(self.temp_hist) == self.temp_hist.maxlen:
-            temp = np.median(np.array(self.temp_hist), axis=0)
-            volt = np.median(np.array(self.volt_hist), axis=0)
-            if temp.max() > WATCHDOG["temp"]:
-                raise Abort(f"{JOINTS[int(temp.argmax())]} at {temp.max():.0f} C (0.5 s median)")
-            if volt.min() < WATCHDOG["volt"]:
-                raise Abort(f"supply {volt.min():.1f} V (0.5 s median)")
 
     def retreat(self, target: np.ndarray) -> None:
         _, q_now = self.state_rad()
@@ -389,15 +195,7 @@ def save(out: Path, log: dict, plan: Plan, meta: dict) -> None:
 
 
 def make_bus(args):
-    if args.sim:
-        return SimBus(SIM_START)
-    try:
-        bus = FeetechBus(args.port)
-        bus.open()
-    except Exception as e:  # serial.SerialException or ConnectionError
-        ports = sorted(str(p) for p in Path("/dev/serial/by-id").glob("*")) if Path("/dev/serial/by-id").exists() else []
-        sys.exit(f"can't open {args.port}: {e}\nserial devices: {ports or 'none (is the arm on USB?)'}")
-    return bus
+    return SimBus(SIM_START) if args.sim else open_bus(args.port)
 
 
 def cmd_record(args) -> int:
@@ -421,7 +219,7 @@ def cmd_record(args) -> int:
     gains = gain_profile(args.d_gain)
     print(f"gains for the run: P {'/'.join(str(gains[j]['P_Coefficient']) for j in JOINTS)}, I 0, D {args.d_gain}")
 
-    kin = Kinematics()
+    kin = ArmModel()
     s0 = bus.read_state()
     start = jmap.to_rad(s0.position)
     seed = np.array([READY_JOINT_POS[j] for j in JOINTS])
@@ -431,7 +229,7 @@ def cmd_record(args) -> int:
     plan = build_plan(start, poses)
     print("start pose [deg]: " + ", ".join(f"{j} {np.degrees(v):+.1f}" for j, v in zip(JOINTS, start)))
     print(f"plan: {len(plan.segments)} segments, {plan.seconds / 60:.1f} min; supply {s0.voltage.mean():.1f} V")
-    problems = check_plan(plan, kin, servo_limits, jmap)
+    problems = check_plan(plan, kin, servo_limits, jmap, near_start={"start", f"to_{next(iter(POSES))}", "to_start", "end"})
     if problems:
         print("plan check FAILED:\n  " + "\n  ".join(problems))
         return 1
