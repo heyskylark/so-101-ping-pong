@@ -842,12 +842,13 @@ def tilts_deg(g: np.ndarray) -> tuple[float, float]:
     return float(np.degrees(np.arctan2(g[1], -g[2]))), float(np.degrees(np.arctan2(-g[0], -g[2])))
 
 
-def load_gravity_recordings() -> tuple[np.ndarray, list[str], np.ndarray, np.ndarray]:
-    """All gravity recordings pooled (each shifted by 1000 s): detections (N, 5, camera indices into the returned
-    names), camera names, encoder times and raw angles."""
+def load_gravity_recordings(newest_only: bool = False) -> tuple[np.ndarray, list[str], np.ndarray, np.ndarray]:
+    """All gravity recordings pooled (each shifted by 1000 s; `newest_only`: just the last): detections (N, 5,
+    camera indices into the returned names), camera names, encoder times and raw angles."""
     names: list[str] = []
     D, T, Q = [], [], []
-    for k, path in enumerate(sorted(RAW.glob("*_gravity.npz"))):
+    paths = sorted(RAW.glob("*_gravity.npz"))
+    for k, path in enumerate(paths[-1:] if newest_only else paths):
         g = np.load(path)
         rec = [str(n) for n in g["cameras"]]
         for n in rec:
@@ -881,8 +882,10 @@ def cmd_gravity(args) -> int:
             s.move_to(Q_READY)
             cams.start()
             t0 = s.bus.now()
-            print(f"Toss the ball gently across the space above the paddle (arcs peaking 10-20 cm above it, not "
-                  f"touching the paddle), let it land beyond, repeat; {args.seconds:.0f} s.")
+            print(f"Drop the ball straight down from rest, 20-30 cm above the paddle (open your fingers, no throw, no "
+                  f"spin), let it bounce once or twice, catch it, repeat at different spots over the paddle; "
+                  f"{args.seconds:.0f} s. (Tosses across the picture bias it: the overhead camera's range from the "
+                  "ball's size drifts across its picture.)")
             try:
                 def tick(k, goal, r):
                     enc.append((r.t - t0, r.q - np.asarray(arm.joint_offsets)))  # raw angles: offsets may change
@@ -896,7 +899,7 @@ def cmd_gravity(args) -> int:
         save_raw("gravity", cameras=np.array(names), enc_t=np.array([e[0] for e in enc]),
                  enc_q=np.array([e[1] for e in enc]),
                  dets=np.array([(names.index(d.camera), d.stamp - t0, d.u, d.v, d.d) for d in dets]).reshape(-1, 5))
-    dets, names, enc_t, enc_q_raw = load_gravity_recordings()
+    dets, names, enc_t, enc_q_raw = load_gravity_recordings(newest_only=args.fresh)
     use = [n for n in names if n in args.cameras]
     calibs = {n: CameraCalib.load(n) for n in use}
     m = gravity_measurements(dets, names, enc_t, enc_q_raw + np.array(arm.joint_offsets), calibs, model)
@@ -1229,6 +1232,7 @@ def main() -> int:
     p.add_argument("--seconds", type=float, default=40.0)
     p.add_argument("--refit", action="store_true", help="no arm: refit from the newest saved recording")
     p.add_argument("--no-lift", action="store_true", help="only check gravity; don't solve the lift offset")
+    p.add_argument("--fresh", action="store_true", help="analyse only the newest recording (default: pool all)")
     args = ap.parse_args()
     torch.set_num_threads(1)
     return {"selftest": cmd_selftest, "targets": cmd_targets, "intrinsics": cmd_intrinsics, "overhead": cmd_overhead,
