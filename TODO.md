@@ -340,8 +340,9 @@ tilt 0.05°). Targets printed (`make_calib_targets.py`: tag + 5×7 ChArUco of 30
 - [ ] Overhead extrinsics via the arm: `calibrate.py overhead`. AprilTag flat on the paddle's back face, ~20 planned
       poses, fits camera pose, tag placement in the face plane and joint offsets (lift, elbow, wrist_flex,
       wrist_roll). The flat-tag constraint is what makes the wrist_roll offset (sideways paddle tilt) observable.
-- [ ] Wrist camera mount: `calibrate.py wrist`; the ChArUco board standing in front, ~24 poses around ready, fits
-      the camera-in-paddle-link transform (CAD start) and the board pose.
+- [ ] Wrist camera mount: `calibrate.py wrist`; the ChArUco board flat on the table, 24 planned poses that roll the
+      paddle over to look down at it; closed-form hand-eye start (the module sits ~90° about its axis from CAD), then
+      the camera-in-paddle-link transform and the board pose. Two hand-held runs failed (board drift, 32–43 px).
 - [ ] Timestamp offset per camera: `calibrate.py timing <camera>`; sinusoidal arm motion, target track vs encoder
       FK → capture-time offset and rolling-shutter readout.
 - [ ] Validate with gravity: `calibrate.py gravity`; ball flights fitted with drag, tilt must be < 0.5°.
