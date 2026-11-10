@@ -154,7 +154,9 @@ class UvcCamera(threading.Thread):
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.cfg.width)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.cfg.height)
         cap.set(cv2.CAP_PROP_FPS, self.cfg.fps)
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        # One buffer halves the frame rate (the driver drops the frame arriving while we decode: 14.8 vs 29.5 fps
+        # measured). Decode + detection is ~3 ms a frame, so the thread keeps up and buffers don't fill with stale frames.
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 4)
         w, h = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         if (w, h) != (self.cfg.width, self.cfg.height):
             raise RuntimeError(f"{self.name_}: got {w}x{h}, wanted {self.cfg.width}x{self.cfg.height}")
