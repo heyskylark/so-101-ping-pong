@@ -27,7 +27,11 @@ from scipy.optimize import least_squares
 from pingpong_sim.ball import BALL_RADIUS, DRAG_K, G
 from pingpong_sim.kinematics import ArmKinematics
 
-FIT_JOINTS = (1, 2, 3, 4)  # joint offsets fitted by the overhead calibration (not pan)
+# Joint offsets the overhead calibration fits. Not pan or lift: everything the camera sees (the tag) is beyond both,
+# so a pan offset is the same picture as the camera turned about the vertical, and a lift offset the same as the
+# camera turned about the shoulder's lift axis (26 real poses: lift free -> camera +-23 mm / 2.2 deg). The lift
+# offset is found from gravity instead (`calibrate.py gravity`: the tilt of ball flights about that axis).
+FIT_JOINTS = (2, 3, 4)
 
 
 def rot(rvec: np.ndarray) -> np.ndarray:
@@ -129,17 +133,20 @@ def tag_on_face(links: Links, theta: float, dx: float, dy: float) -> tuple[np.nd
 
 
 def fit_overhead(links: Links, K, D, qs: np.ndarray, corners: np.ndarray, tag_pts: np.ndarray,
-                 fit_offsets: bool = True, offset_prior_deg: float = 2.0) -> dict:
-    """Tag corners (N, 4, 2) at encoder angles qs (N, 5) -> camera pose, tag placement on the back face, joint
-    offsets. The tag lies flat on the blade (its normal is the face normal): with a free tag orientation the
-    wrist_roll offset would be unobservable (a roll offset = the tag turned about the paddle axis), yet it is the
-    paddle's sideways tilt."""
+                 fit_offsets: bool = True, offset_prior_deg: float = 2.0, joints: tuple = FIT_JOINTS,
+                 fixed_offsets: np.ndarray | None = None) -> dict:
+    """Tag corners (N, 4, 2) at encoder angles qs (N, 5) -> camera pose, tag placement on the back face, offsets
+    of `joints` (the others held at `fixed_offsets`, default 0). The tag lies flat on the blade (its normal is the
+    face normal): with a free tag orientation the wrist_roll offset would be unobservable (a roll offset = the tag
+    turned about the paddle axis), yet it is the paddle's sideways tilt."""
     n = len(qs)
+    joints = list(joints) if fit_offsets else []
+    nj = len(joints)
+    d_fixed = np.zeros(5) if fixed_offsets is None else np.asarray(fixed_offsets, float).copy()
 
     def unpack(x):
-        d = np.zeros(5)
-        if fit_offsets:
-            d[list(FIT_JOINTS)] = x[9:13]
+        d = d_fixed.copy()
+        d[joints] = x[9:9 + nj]
         R_lt, p_lt = tag_on_face(links, x[6], x[7], x[8])
         return rot(x[0:3]), x[3:6], R_lt, p_lt, d
 
@@ -147,14 +154,12 @@ def fit_overhead(links: Links, K, D, qs: np.ndarray, corners: np.ndarray, tag_pt
         R_wc, p_wc, R_lt, p_lt, d = unpack(x)
         X = _tag_world(links, qs + d, R_lt, p_lt, tag_pts)
         r = (project(K, D, R_wc, p_wc, X.reshape(-1, 3)) - corners.reshape(-1, 2)).ravel()
-        if fit_offsets:
-            r = np.concatenate([r, x[9:13] / math.radians(offset_prior_deg)])
-        return r
+        return np.concatenate([r, x[9:9 + nj] / math.radians(offset_prior_deg)])
 
     # Initial guesses: the tag centred on the back face, its rotation in the face unknown (8 tries); the camera
     # from each try's per-view PnP estimates (the view nearest their median position).
     views = [pnp(K, D, tag_pts, c, square=True) for c in corners]
-    R_l, p_l = links(qs)
+    R_l, p_l = links(qs + d_fixed)
     best = None
     for k in range(8):
         theta = k * math.pi / 4
@@ -171,7 +176,7 @@ def fit_overhead(links: Links, K, D, qs: np.ndarray, corners: np.ndarray, tag_pt
             raise ValueError("the tag pose could not be solved in any view")
         p0 = np.median([c[1] for c in cams], axis=0)
         R0 = cams[int(np.argmin([np.linalg.norm(c[1] - p0) for c in cams]))][0]
-        x0 = np.concatenate([rvec(R0), p0, [theta, 0.0, 0.0], np.zeros(4 if fit_offsets else 0)])
+        x0 = np.concatenate([rvec(R0), p0, [theta, 0.0, 0.0], d_fixed[joints]])
         sol = least_squares(res, x0, method="lm", max_nfev=400)
         if best is None or sol.cost < best.cost:
             best = sol

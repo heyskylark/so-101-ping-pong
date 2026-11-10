@@ -112,26 +112,29 @@ to `sim/build/snapshots/` with the paddle face's pixel position, and returns. Pl
 | 2 | `uv run scripts/cameras.py list`, then `cameras.py assign overhead <device>` and `assign wrist <device>` | plug in one camera at a time to tell them apart (use the `/dev/v4l/by-path/` names) | `rig.json` |
 | 3 | `uv run scripts/cameras.py preview overhead` (and `wrist`) | check orientation (camera_setup.md), set exposure with +/- (≤ 2 ms, picture still bright), toss the ball: it should be found in most frames | exposure saved; ball colour via `cameras.py color` |
 | 4 | `uv run scripts/calibrate.py intrinsics overhead` (and `wrist`) | wave the board: still for a moment at each spot, all over the picture including the corners, tilted up to ~45°, near and far | lens model, RMS ≲ 0.5 px |
-| 5 | `uv run scripts/calibrate.py overhead --port /dev/ttyACM0` | tag on the paddle's back face; the arm rolls the paddle over and shows it to the overhead camera in ~20 poses | camera pose, joint offsets, tag placement |
-| 6 | `uv run scripts/calibrate.py wrist --port /dev/ttyACM0` | board standing upright ~0.3 m beyond the paddle tip, facing the arm, centre at paddle height; the arm moves around ready | wrist camera mount |
-| 7 | `uv run scripts/calibrate.py timing overhead --port ...`, then `timing wrist` (board untouched since step 6) | the arm waves the paddle for 12 s | each camera's timestamp offset and rolling-shutter readout |
-| 8 | `uv run scripts/calibrate.py gravity --port /dev/ttyACM0` | drop the ball onto the paddle from 20–40 cm, catch it, repeat for 40 s | gravity tilt (< 0.5°) and magnitude (within 2 %): checks everything above |
+| 5 | `uv run scripts/calibrate.py overhead --port /dev/ttyACM0` (run it again to add poses; sessions pool) | tag on the paddle's back face; the arm rolls the paddle over and shows it to the overhead camera in 24 poses | camera pose, elbow / wrist_flex / wrist_roll offsets, tag placement; prints its uncertainty |
+| 6 | `uv run scripts/calibrate.py gravity --port /dev/ttyACM0` | drop the ball onto the paddle from 20–40 cm, catch it, repeat for 40 s | the shoulder-lift offset (and the overhead pose refitted with it) |
+| 7 | `uv run scripts/calibrate.py wrist --port /dev/ttyACM0` | board standing upright ~0.3 m beyond the paddle tip, facing the arm, centre at paddle height; the arm moves around ready | wrist camera mount |
+| 8 | `uv run scripts/calibrate.py timing overhead --port ...`, then `timing wrist` (board untouched since step 7), then `gravity --port ... --cameras overhead wrist --no-lift` | the arm waves the paddle for 12 s; then drops as in step 6 | timestamp offsets and rolling-shutter readout; final check: gravity tilt < 0.5°, magnitude within 2 % |
 | 9 | `uv run scripts/run_robot.py --port /dev/ttyACM0 --scripted --seconds 60` | hold the ball above the paddle and let go | the scripted bouncer alone: a first test of the whole loop |
 | 10 | `uv run scripts/run_robot.py --port /dev/ttyACM0 --policy policies/residual_v1` | same | the trained policy; logs in `measurements/runs/<time>/` |
 
 Why each step exists:
 
 - **Lens:** fisheye model (barrel distortion beyond −17 % at the edges), fitted from ChArUco corners.
-- **Overhead pose:** the tag's corners at ~20 arm poses, with the encoder angles there, fit the camera pose in the
-  robot frame, where the tag sits on the blade, and joint zero offsets (lift, elbow, wrist_flex, wrist_roll). The
-  tag is assumed flat on the blade: that is what makes the wrist_roll offset (the paddle's sideways tilt)
-  measurable.
+- **Overhead pose:** the tag's corners at ~24 arm poses, with the encoder angles there, fit the camera pose in the
+  robot frame, where the tag sits on the blade, and the elbow, wrist_flex and wrist_roll zero offsets. The tag is
+  assumed flat on the blade: that is what makes the wrist_roll offset (the paddle's sideways tilt) measurable. Pan
+  and lift can't be measured this way: the tag is beyond both joints, so a pan or lift offset looks exactly like
+  the camera turned about that joint's axis.
 - **Wrist mount:** the board's corners seen from ~20 poses fit the camera's mount on the holder (CAD as the start)
   and where the board stands.
 - **Timing:** the target's track against the encoders gives the capture time of each frame relative to the driver's
   buffer timestamp (to < 1 ms in the selftest) and the rolling-shutter readout across rows.
-- **Gravity:** ball flights fitted with drag; a tilted result means the robot frame the cameras report in is tilted,
-  which shows up as a paddle-tilt error (1° ≈ 3 cm of drift per bounce).
+- **Gravity:** ball flights fitted with drag. A lift offset tilts the robot's idea of "level" about the lift axis,
+  so ball flights seen through the overhead camera fall at a slant; step 6 finds the lift offset that makes them fall
+  straight down (a planted 3.00° comes back as 2.96° in the selftest). The final check reports any tilt left: about
+  the forward axis that means the arm base or table isn't level. Tilt matters: 1° ≈ 3 cm of drift per bounce.
 
 ## Running
 
