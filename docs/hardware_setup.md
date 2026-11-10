@@ -96,6 +96,15 @@ data in `raw/`), and later steps refuse to run until the ones they need are done
 checks them in the sim (joint and servo limits, table clearance, blade vs arm) and asks for "go"; Ctrl-C returns
 the arm to where it started, a second Ctrl-C cuts torque.
 
+**Start every arm step from the folded rest** (the pose the limp arm falls into: upper arm back, forearm folded up,
+paddle pointing up). With the paddle resting tip-down on the table, joint offsets of a few degrees (measured later
+by step 5) put the tip "inside" the table in the model, and the check refuses to move.
+
+Aim the overhead camera with the arm at the real ready pose:
+`uv run scripts/arm_pose.py ready --port /dev/ttyACM0 --snapshot overhead wrist` moves there, saves both pictures
+to `sim/build/snapshots/` with the paddle face's pixel position, and returns. Planned: paddle centre near
+(715, 360) in the overhead picture (arm entering from the right), blade a vertical strip mid-picture in the wrist one.
+
 | # | Command | What you do | Result |
 |---|---|---|---|
 | 0 | `uv run scripts/calibrate.py selftest` | nothing (no hardware) | the solvers recover known answers from synthetic data |
