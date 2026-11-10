@@ -34,11 +34,28 @@ from pingpong_sim.camera_sim import OVERHEAD
 from pingpong_sim.controller import ArmHistory
 from pingpong_sim.kinematics import ArmKinematics
 from pingpong_sim.real.arm import RATE, ArmModel, ArmSession, PlanBuilder, open_bus
-from pingpong_sim.real.calib_solve import (Links, angle_deg, fit_gravity, fit_intrinsics, fit_overhead, fit_timing,
-                                           fit_wrist, leave_one_out, measure_ball, overhead_poses, project, rot, rot_z,
-                                           rvec, table_board, tag_on_face, wrist_poses)
-from pingpong_sim.real.camera_model import (CALIB_DIR, ArmCalib, CameraCalib, apply_wrist_mount, nominal,
-                                            to_measurements)
+from pingpong_sim.real.calib_solve import (
+    WRIST_BOARD_CENTRE,
+    Links,
+    angle_deg,
+    board_pnp,
+    fit_gravity,
+    fit_intrinsics,
+    fit_overhead,
+    fit_timing,
+    fit_wrist,
+    leave_one_out,
+    measure_ball,
+    overhead_poses,
+    project,
+    rot,
+    rot_z,
+    rvec,
+    table_board,
+    tag_on_face,
+    wrist_poses,
+)
+from pingpong_sim.real.camera_model import CALIB_DIR, ArmCalib, CameraCalib, apply_wrist_mount, nominal, to_measurements
 from pingpong_sim.real.cameras import MAX_BALL_PX, MIN_BALL_PX, BallCameras, RigConfig, UvcCamera
 from pingpong_sim.real.targets import SPEC, BoardDetector, TagDetector, load_spec
 from pingpong_sim.robot import READY_JOINT_POS
@@ -329,6 +346,130 @@ def wrist_usable(calib: CameraCalib):
     return usable
 
 
+def board_obs_overhead(board: BoardDetector, seconds: float = 1.5) -> tuple[np.ndarray, np.ndarray] | None:
+    """Board corners (ids, median pixels) the overhead camera sees over `seconds`; None if it doesn't see it."""
+    cam = start_camera("overhead", board)
+    try:
+        time.sleep(seconds)
+        dets = [d for _, d in cam.drain()]
+    finally:
+        cam.stop()
+    if len(dets) < 3:
+        return None
+    per_id: dict[int, list] = {}
+    for ids, uv in dets:
+        for k, c in zip(ids, uv):
+            per_id.setdefault(int(k), []).append(c)
+    keep = np.array(sorted(k for k, v in per_id.items() if len(v) >= len(dets) // 2))
+    return keep, np.array([np.median(per_id[k], axis=0) for k in keep])
+
+
+def board_world(K, D, R_wc, p_wc, board_pts, ids, uv) -> tuple[np.ndarray, np.ndarray] | None:
+    """World-from-board pose of a board lying printed side up, from one camera's view (world-from-camera R_wc,
+    p_wc); of the two planar PnP solutions, the one facing up."""
+    for R_cb, t_cb in board_pnp(K, D, board_pts, ids, uv):
+        R_wb = np.asarray(R_wc) @ R_cb
+        if -R_wb[2, 2] > 0.7:  # board z points into the board
+            return R_wb, np.asarray(R_wc) @ t_cb + np.asarray(p_wc)
+    return None
+
+
+def board_from_overhead(board: BoardDetector, seconds: float = 1.5) -> tuple[np.ndarray, np.ndarray, int] | None:
+    """The board's world pose (world-from-board R, origin) measured by the calibrated overhead camera, and the
+    number of corners it used; None if the overhead camera isn't calibrated or doesn't see the board."""
+    oc = CameraCalib.load("overhead")
+    obs = board_obs_overhead(board, seconds) if oc.R is not None else None
+    pose = board_world(oc.Km, oc.Dm, oc.R, oc.p, board.corners3d, *obs) if obs is not None else None
+    return None if pose is None else (*pose, len(obs[0]))
+
+
+# ---------------------------------------------------------------------------------------------------- table
+
+def lift_from_table(offsets, overhead: CameraCalib, model, qs, corners, board_pts, ids, uv):
+    """The shoulder-lift offset from a board lying on the table (level with the arm's base): the one whose overhead
+    camera pose (refitted with that offset from the tag data qs, corners) sees the board level about the lift axis.
+    The overhead fit can't see this offset (it trades off against the camera's pitch); a wrong one tilts the whole
+    world about the lift axis, the table with it. Returns the offset (rad), that overhead fit and the board pose."""
+    from scipy.optimize import brentq
+
+    tag = TagDetector()
+    links = Links(model)
+    base = np.array(offsets, float)
+    cache = {}
+
+    def at(lift: float):
+        d = base.copy()
+        d[1] = lift
+        f = fit_overhead(links, overhead.Km, overhead.Dm, qs, corners, tag.object_points, fixed_offsets=d)
+        pose = board_world(overhead.Km, overhead.Dm, f["R"], f["p"], board_pts, ids, uv)
+        if pose is None:
+            raise SystemExit("the board doesn't come out facing up: is it lying printed side up?")
+        cache[lift] = (f, *pose)
+        n = -pose[0][:, 2]
+        return float(np.arctan2(n[0], n[2]))  # tilt about the lift axis (robot y at pan 0)
+
+    lo, hi = np.radians(-15.0), np.radians(15.0)
+    flo, fhi = at(lo), at(hi)
+    if flo * fhi > 0:
+        raise SystemExit(f"the board's tilt about the lift axis doesn't cross zero for lift offsets within +-15 deg "
+                         f"({np.degrees(flo):+.2f} / {np.degrees(fhi):+.2f} deg)")
+    lift = brentq(at, lo, hi, xtol=np.radians(0.01))
+    if lift not in cache:
+        at(lift)
+    return (lift, *cache[lift])
+
+
+def cmd_table(args) -> int:
+    oc = CameraCalib.load("overhead")
+    if oc.R is None or "extrinsics" not in oc.steps:
+        raise SystemExit("calibrate the overhead camera first: calibrate.py overhead")
+    arm = ArmCalib.load()
+    model = ArmModel().m
+    board = BoardDetector(min_corners=8)
+    if args.refit:
+        raws = sorted(RAW.glob("*_table.npz"))
+        if not raws:
+            raise SystemExit("no saved table view")
+        r = np.load(raws[-1])
+        ids, uv = r["ids"], r["uv"]
+    else:
+        print("Lay the board flat on the table, printed side up, roughly 35-50 cm in front of the arm base, where the "
+              "overhead camera sees it; the table under it and under the arm's base must be one flat surface. The arm "
+              "doesn't move.")
+        if not args.yes:
+            input("Enter when the board is there ")
+        obs = board_obs_overhead(board, 3.0)
+        if obs is None or len(obs[0]) < 12:
+            raise SystemExit("the overhead camera doesn't see enough of the board")
+        ids, uv = obs
+        save_raw("table", ids=ids, uv=uv)
+    sessions = overhead_sessions()
+    qs = np.concatenate([np.load(p)["qs"] for p in sessions])
+    corners = np.concatenate([np.load(p)["corners"] for p in sessions])
+    before = board_world(oc.Km, oc.Dm, oc.R, oc.p, board.corners3d, ids, uv)
+    lift, f, R_wb, p_wb = lift_from_table(arm.joint_offsets, oc, model, qs, corners, board.corners3d, ids, uv)
+    n = -R_wb[:, 2]
+    centre = R_wb @ board.corners3d.mean(0) + p_wb
+    if before is not None:
+        nb = -before[0][:, 2]
+        print(f"before: board tilted {np.degrees(np.arctan2(nb[0], nb[2])):+.2f} deg about the lift axis, centre "
+              f"{100 * (before[0] @ board.corners3d.mean(0) + before[1])[2]:.1f} cm above the base plane "
+              f"(lift offset {np.degrees(arm.joint_offsets[1]):+.2f} deg)")
+    print(f"lift offset from the table: {np.degrees(lift):+.2f} deg; overhead camera refitted at "
+          f"{np.round(f['p'], 3).tolist()} m, RMS {f['rms_px']:.2f} px")
+    print(f"checks: the board's centre is {100 * centre[2]:.1f} cm above the base plane (its thickness, a few mm, if "
+          f"the base and the board sit on the same flat surface); sideways tilt {np.degrees(np.arctan2(-n[1], n[2])):+.2f}"
+          " deg (the table vs the base, side to side; not corrected)")
+    oc.R, oc.p = f["R"].tolist(), f["p"].tolist()
+    oc.steps["extrinsics"]["lift_from_table"] = True
+    arm.joint_offsets = f["offsets"].tolist()
+    arm.tag_R, arm.tag_p = f["tag_R"].tolist(), f["tag_p"].tolist()
+    arm.steps["table"] = {"date": stamp(), "lift_offset_deg": float(np.degrees(lift)),
+                          "board_height_m": float(centre[2]), "side_tilt_deg": float(np.degrees(np.arctan2(-n[1], n[2])))}
+    print("saved", oc.save(), arm.save())
+    return 0
+
+
 def cmd_wrist(args) -> int:
     calib = CameraCalib.load("wrist")
     if "intrinsics" not in calib.steps:
@@ -339,16 +480,23 @@ def cmd_wrist(args) -> int:
     links = Links(model.m)
     R_lc, p_lc = (np.array(calib.R), np.array(calib.p)) if calib.R is not None else (links.cad_cam_R, links.cad_cam_p)
     R_wb, p_wb = table_board(board.corners3d)
+    print(f"Lay the board flat on the table, printed side up, its centre about {100 * WRIST_BOARD_CENTRE[0]:.0f} cm "
+          "in front of the arm base's axis on the arm's centre line, long side across (left-right). Tape it down or "
+          "weigh the margins if it curls; nothing may stick up above it. Don't move it until `timing wrist` is done.")
+    if not args.yes:
+        input("Enter when the board is there (the arm in its folded rest, out of the overhead camera's way) ")
+    seen = board_from_overhead(board)
+    if seen is None:
+        print("the overhead camera doesn't see the board: planning for the spot above instead")
+    else:
+        R_wb, p_wb, n_c = seen
+        centre = R_wb @ board.corners3d.mean(0) + p_wb
+        print(f"overhead camera: board centre at x {100 * centre[0]:.1f} cm, y {100 * centre[1]:+.1f} cm, "
+              f"z {100 * centre[2]:.1f} cm ({n_c} corners); planning the poses around it")
     usable = wrist_usable(calib)
     camera = {"K": calib.Km, "D": calib.Dm, "R": R_lc, "p": p_lc, "board_R": R_wb, "board_p": p_wb,
               "board_pts": board.corners3d, "usable": usable, "offsets": arm.joint_offsets}
     poses = wrist_poses(links, model, camera, n=args.poses)
-    centre = R_wb @ board.corners3d.mean(0) + p_wb
-    print(f"Lay the board flat on the table, printed side up, its centre {100 * centre[0]:.0f} cm in front of the "
-          f"arm base's axis on the arm's centre line, long side across (left-right). Tape it down or weigh the "
-          "margins if it curls; nothing may stick up above it. Don't move it until `timing wrist` is done.")
-    if not args.yes:
-        input("Enter when the board is there ")
     cam = start_camera("wrist", board)
     try:
         with ArmSession(open_bus(args.port), joint_offsets=arm.joint_offsets) as s:
@@ -389,17 +537,23 @@ def cmd_wrist(args) -> int:
                     board0=(R_wb, p_wb))
     d_p = 1e3 * np.linalg.norm(fit["p"] - links.cad_cam_p)
     print(f"RMS {fit['rms_px']:.2f} px over {len(views_ok)} poses; mount {d_p:.1f} mm / "
-          f"{angle_deg(fit['R'], links.cad_cam_R):.2f} deg from CAD; board centre "
-          f"{np.round(fit['board_R'] @ board.corners3d.mean(0) + fit['board_p'], 3).tolist()} m")
+          f"{angle_deg(fit['R'], links.cad_cam_R):.2f} deg from CAD")
+    if seen is not None:
+        c_fit = fit["board_R"] @ board.corners3d.mean(0) + fit["board_p"]
+        c_ov = R_wb @ board.corners3d.mean(0) + p_wb
+        print(f"board as the wrist fit puts it vs as the overhead camera measured it: {1e3 * np.linalg.norm(c_fit - c_ov):.1f}"
+              f" mm / {angle_deg(fit['board_R'], R_wb):.2f} deg apart (the two calibrations agree when these are small)")
     print("per pose: fit error [px] / median disagreement between the arm's and the camera's turn to the other "
-          "poses [deg] (should be < 0.5; larger means the board, the camera or the paddle moved):")
+          "poses [deg] (the arm's own pose error is ~1-2 deg; much more means the board or the camera moved):")
     for i, (e, dis) in enumerate(zip(fit["per_view_px"], fit["view_disagree_deg"])):
-        print(f"  {i + 1:2d}: {e:5.1f} px  {dis:4.1f} deg" + ("   <-- moved?" if dis > 1.0 else ""))
-    if fit["rms_px"] > 3.0:
-        raise SystemExit(f"fit error {fit['rms_px']:.1f} px (expected < 2): not saved. Check the board stands firm "
-                         "and the wrist camera and paddle don't wiggle in the holder, then run again.")
+        print(f"  {i + 1:2d}: {e:5.1f} px  {dis:4.1f} deg" + ("   <-- moved?" if dis > 3.0 else ""))
+    med = float(np.median(fit["view_disagree_deg"]))
+    if med > 2.5 or fit["rms_px"] > 12.0:
+        raise SystemExit(f"fit error {fit['rms_px']:.1f} px, median disagreement {med:.1f} deg: not saved. Check the "
+                         "board lies still and the wrist camera and paddle don't wiggle in the holder, then run again.")
     calib.R, calib.p = fit["R"].tolist(), fit["p"].tolist()
     calib.steps["mount"] = {"date": stamp(), "poses": len(views_ok), "rms_px": fit["rms_px"], "raw": raw.name,
+                            "disagree_deg_median": med,
                             "board_R": fit["board_R"].tolist(), "board_p": fit["board_p"].tolist(),
                             "pose_q": qs_ok.tolist()}
     print("saved", calib.save())
@@ -595,7 +749,8 @@ def cmd_gravity(args) -> int:
     model = ArmModel().m
     if args.cameras is None:
         args.cameras = [n for n in ("overhead", "wrist") if CameraCalib.path(n).exists() and (
-            (c := CameraCalib.load(n)).R is not None and c.steps.get("mount", {}).get("rms_px", 0.0) < 3.0)]
+            (c := CameraCalib.load(n)).R is not None and (n == "overhead" or "disagree_deg_median" in c.steps.get(
+                "mount", {})))]  # a wrist mount from the checked (flat-board) step only
     if not args.refit:
         calibs = {n: CameraCalib.load(n) for n in args.cameras}
         for n, c in calibs.items():
@@ -629,7 +784,10 @@ def cmd_gravity(args) -> int:
     arcs = gravity_arcs(m)
     if len(arcs) < 3:
         raise SystemExit(f"only {len(arcs)} usable ball flights in {len(m['t'])} detections")
-    if not args.no_lift and "overhead" in calibs:
+    if "table" in arm.steps and not args.no_lift:
+        print(f"lift offset from the table step ({arm.steps['table']['lift_offset_deg']:+.2f} deg) kept: it is much "
+              "more precise than ball flights; gravity only checks it")
+    if not args.no_lift and "overhead" in calibs and "table" not in arm.steps:
         sessions = overhead_sessions()
         qs = np.concatenate([np.load(p)["qs"] for p in sessions])
         corners = np.concatenate([np.load(p)["corners"] for p in sessions])
@@ -811,6 +969,15 @@ def cmd_selftest(args) -> int:
     enc_t = np.arange(0, 13, 1 / RATE)
     enc_q = np.repeat((Q_READY - offs)[None], len(enc_t), axis=0)
     guess = ArmCalib(joint_offsets=(offs * np.array([1, 0, 1, 1, 1])).tolist())  # lift unknown: 0
+    R_tb, p_tb = table_board(board.corners3d, np.array([0.45, 0.02, 0.004]))
+    Xb = board.corners3d @ R_tb.T + p_tb
+    uvb = project(K, D, R_wc, cp_true, Xb)
+    mb = in_image(uvb, (Xb - cp_true) @ R_wc)
+    lift_t, f, R_fb, p_fb = lift_from_table(guess.joint_offsets, cal, model.m, qs, cs, board.corners3d,
+                                            np.flatnonzero(mb), uvb[mb] + rng.normal(scale=0.3, size=(mb.sum(), 2)))
+    dz = 1e3 * abs((R_fb @ board.corners3d.mean(0) + p_fb)[2] - 0.004)
+    check("lift from table", abs(np.degrees(lift_t - offs[1])) < 0.3 and dz < 3,
+          f"lift offset {np.degrees(lift_t):+.2f} deg (true +3.00), board height off {dz:.2f} mm")
     lift, f = lift_from_gravity(guess, cal, np.array(rows), ["overhead"], enc_t, enc_q, model.m, qs, cs)
     dp = 1e3 * np.linalg.norm(f["p"] - cp_true)
     check("lift from gravity", abs(np.degrees(lift - offs[1])) < 0.3 and dp < 3,
@@ -916,6 +1083,9 @@ def main() -> int:
     p.add_argument("--poses", type=int, default=24)
     p.add_argument("--fresh", action="store_true", help="fit only the newest session (default: pool all saved ones)")
     p.add_argument("--refit", action="store_true", help="no arm: refit from the saved sessions")
+    p = sub.add_parser("table")
+    p.add_argument("--yes", action="store_true", help="don't wait for Enter")
+    p.add_argument("--refit", action="store_true", help="no camera: solve from the saved table view")
     p = sub.add_parser("wrist")
     p.add_argument("--port", required=True)
     p.add_argument("--poses", type=int, default=24)
@@ -935,7 +1105,7 @@ def main() -> int:
     args = ap.parse_args()
     torch.set_num_threads(1)
     return {"selftest": cmd_selftest, "targets": cmd_targets, "intrinsics": cmd_intrinsics, "overhead": cmd_overhead,
-            "wrist": cmd_wrist, "timing": cmd_timing, "gravity": cmd_gravity}[args.cmd](args)
+            "table": cmd_table, "wrist": cmd_wrist, "timing": cmd_timing, "gravity": cmd_gravity}[args.cmd](args)
 
 
 if __name__ == "__main__":

@@ -486,7 +486,7 @@ def leave_one_out(fit_fn, n: int) -> dict:
             "offsets_deg": s * np.sqrt(np.mean(np.square(do), axis=0))}
 
 
-WRIST_BOARD_CENTRE = np.array([0.40, 0.0, 0.002])  # flat on the table: 40 cm out on the arm's centre line
+WRIST_BOARD_CENTRE = np.array([0.35, 0.0, 0.002])  # flat on the table: 35 cm out on the arm's centre line
 
 
 def table_board(board_pts: np.ndarray, centre: np.ndarray = WRIST_BOARD_CENTRE) -> tuple[np.ndarray, np.ndarray]:
@@ -499,15 +499,17 @@ def table_board(board_pts: np.ndarray, centre: np.ndarray = WRIST_BOARD_CENTRE) 
 
 
 def wrist_poses(links: Links, model, camera: dict, n: int = 24, seed: int = 0, tries: int = 60000,
-                min_corners: int = 18, max_view_deg: float = 55.0) -> np.ndarray:
+                min_corners: int = 18, max_view_deg: float = 40.0, max_dist: float = 0.36) -> np.ndarray:
     """Arm poses (n, 5) for the wrist camera to see a board lying on the table (a hand-held or propped board
     drifts a few degrees over the run, which the fit can't tell from a mount error): the paddle rolled over and
     tipped down so the half of the picture beyond the blade looks at the board. `camera`: K, D, R, p
     (paddle-link-from-camera, rough), board_R, board_p, board_pts, usable (pixels (N, 2) -> bool: beyond the blade,
     in the calibrated part of the lens), offsets (joint offsets: candidates stay 0.1 rad inside the ranges in the
-    angles that will be sent). Each pose: >= `min_corners` usable corners, camera 0.18-0.45 m from the board
-    centre within `max_view_deg` of its normal, payload >= 6 cm above the table, blade clear of the arm. Spread
-    over joint angles and camera position (separates the mount from the board pose), ordered for short moves."""
+    angles that will be sent). Each pose: >= `min_corners` usable corners, camera 0.18-`max_dist` m from the
+    board centre within `max_view_deg` of its normal (the first flat-board run found the board at only 7 of 24
+    poses, all <= 62 deg / 0.41 m; ArUco markers stop decoding when foreshortened further), payload >= 6 cm above
+    the table, blade clear of the arm. Spread over joint angles and camera position (separates the mount from the
+    board pose), ordered for short moves."""
     rng = np.random.default_rng(seed)
     lo, hi = model.range[:, 0] + 0.1, model.range[:, 1] - 0.1
     box_lo = np.array([-0.6, -1.3, -0.2, -1.4, -3.0])
@@ -523,7 +525,7 @@ def wrist_poses(links: Links, model, camera: dict, n: int = 24, seed: int = 0, t
     up = -camera["board_R"][:, 2]  # printed side's normal
     d = ctr - c
     dist = np.linalg.norm(d, axis=1)
-    ok = ((dist > 0.18) & (dist < 0.45) & (-(d @ up) / dist > math.cos(math.radians(max_view_deg)))
+    ok = ((dist > 0.18) & (dist < max_dist) & (-(d @ up) / dist > math.cos(math.radians(max_view_deg)))
           & (np.einsum("ni,ni->n", R_c[:, :, 2], d) / dist > 0.6))
     good, feats = [], []
     for i in np.flatnonzero(ok):
