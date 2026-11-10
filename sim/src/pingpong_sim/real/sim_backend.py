@@ -232,7 +232,8 @@ class SimBusAdapter:
             w.physics()
             w.events()
             w.record()
-            self.detections.append(w.rig.detect(w.now))
+            if w.rig.cams:
+                self.detections.append(w.rig.detect(w.now))
             self._maybe_relaunch()
 
     def _maybe_relaunch(self) -> None:

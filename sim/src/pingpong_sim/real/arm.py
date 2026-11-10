@@ -172,15 +172,16 @@ def check_plan(plan: Plan, model: ArmModel, servo_limits: np.ndarray, joint_map:
         q = plan.q[:, i]
         motion = plan.q[1:, i] != plan.q[:-1, i]
         if motion.any() and (q.min() < lo[i] - 1e-9 or q.max() > hi[i] + 1e-9):
-            # The start pose may sit outside the margin (wherever the arm rests); motion must not go further out.
-            start = plan.q[0, i]
-            if q.min() < min(lo[i], start) - 1e-6 or q.max() > max(hi[i], start) + 1e-6:
+            # The start pose may sit outside the margin (wherever the arm rests), and a move may return there;
+            # motion must not go further out than the plan's ends.
+            ends = (plan.q[0, i], plan.q[-1, i])
+            if q.min() < min(lo[i], *ends) - 1e-6 or q.max() > max(hi[i], *ends) + 1e-6:
                 problems.append(f"{j}: goal {np.degrees(q.min()):.0f}..{np.degrees(q.max()):.0f} deg leaves the sim "
                                 f"range {np.degrees(model.range[i, 0]):.0f}..{np.degrees(model.range[i, 1]):.0f} deg")
         # As above: the resting start may sit past a limit (the servo clamps that goal); motion must not go further.
-        r0 = raw[0, i]
+        r_ends = (raw[0, i], joint_map.to_raw(plan.q[-1] - off)[i])
         lo_t, hi_t = servo_limits[i, 0] + TICK_MARGIN, servo_limits[i, 1] - TICK_MARGIN
-        if raw[:, i].min() < min(lo_t, r0) - 1 or raw[:, i].max() > max(hi_t, r0) + 1:
+        if raw[:, i].min() < min(lo_t, *r_ends) - 1 or raw[:, i].max() > max(hi_t, *r_ends) + 1:
             problems.append(f"{j}: goal ticks {raw[:, i].min():.0f}..{raw[:, i].max():.0f} outside the servo limits "
                             f"{servo_limits[i, 0]:.0f}..{servo_limits[i, 1]:.0f}")
     model.forward(plan.q[0])
@@ -370,11 +371,15 @@ class ArmSession:
         return Reading(self.bus.now(), q, sign * s.velocity * RAD_PER_TICK, s.temperature, s.voltage, s.load)
 
     def clamp(self, q: np.ndarray) -> np.ndarray:
-        """Inside the sim joint range and the servo limits, with margins (true angles)."""
+        """Inside the sim joint range and the servo limits, with margins (true angles); the pose the session started
+        from is always allowed (the arm's rest can sit past a margin, and the session returns there)."""
         a, b = self.map.to_rad(self.servo_limits[:, 0]), self.map.to_rad(self.servo_limits[:, 1])
         tick = TICK_MARGIN * RAD_PER_TICK
         lo = np.maximum(self.model.range[:, 0] + LIMIT_MARGIN, np.minimum(a, b) + self.offsets + tick)
         hi = np.minimum(self.model.range[:, 1] - LIMIT_MARGIN, np.maximum(a, b) + self.offsets - tick)
+        start = getattr(self, "start", None)
+        if start is not None:
+            lo, hi = np.minimum(lo, start), np.maximum(hi, start)
         return np.clip(q, lo, hi)
 
     def command(self, q: np.ndarray) -> np.ndarray:
