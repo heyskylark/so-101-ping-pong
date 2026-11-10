@@ -259,7 +259,24 @@ Reference: Rhoban [`mjlab_microban`](https://github.com/Rhoban/mjlab_microban) (
       counted bounces). `direct_v2` (stopped at ~760 it) had learned to tap the rising ball right after each hit:
       90 counted per 20 s at a 214 mm apex where ~46 fit. Recounted with the fix (same episodes): 84.8 % full
       20 s, 14 / 50 / 52 bounces, apex 214 ± 52 mm, landing 19 / 40 mm. `residual_v1` recounts unchanged.
-- [ ] `direct_v3` (1000 it, apex-weighted rewards, one bounce per fall): evaluate against `residual_v1`.
+- [x] `direct_v3` (1000 it, apex-weighted rewards, one bounce per fall; goals = ready + 0.5 rad × action). Summary,
+      `eval_task.py` 256 worlds × 40 s (sim2sim: 96 episodes on CPU MuJoCo through the deploy code path):
+
+      | | Scripted | `residual_v1` | `residual_v2` | `direct_v3` |
+      |---|---|---|---|---|
+      | Full 20 s | 6–7 % | 92 % (sim2sim 93 %) | 88 % (91 %) | 88 % (89 %) |
+      | Bounces p10 / p50 / p90 | 1 / 6 / 29 | 40 / 44 / 48 | 22 / 44 / 47 | 28 / 47 / 51 |
+      | Apex (target 250 mm) | 230 ± 86 | 214 ± 55 | 214 ± 55 | 222 ± 55 |
+      | Landing error p50 / p90 (mm) | 44 / 117 | 13 / 32 | 12 / 29 | 14 / 34 |
+      | Failures by paddle tilt | 0 % | 2 % | 3 % | 16 % |
+
+      The direct policy learns the whole stroke (goals 6–18° from ready at p90 on lift/elbow/wrist_flex) and gets
+      close, but tilts the paddle into failures more and does worse on the bounciest balls (81 % at e 0.61–0.65).
+      **Deploy `residual_v1` first**: best numbers, small corrections on top of a stroke that is explainable and
+      works on its own (zero action = the scripted bouncer).
+- [ ] Deploy runtime (see `docs/hardware_setup.md`, "Software status"): camera capture + ball detection, the
+      100 Hz loop on the real arm (encoders + detections → `BounceController` → `OnnxPolicy` → servo goals), the
+      calibration scripts (lens, overhead pose, wrist mount, timestamp offsets, gravity check).
 
 No camera rendering in the RL loop: train on the deployment filter fed by simulated detections.
 
