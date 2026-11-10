@@ -1,42 +1,42 @@
 {
-    "kt": 2.217505279290508,
-    "error_gain_ratio": 1.1420320426042598,
-    "R": 4.451428904665287,
-    "armature": 0.01743066435744176,
+    "kt": 1.8174002303759167,
+    "error_gain_ratio": 0.8848180561729825,
+    "R": 2.951768971450314,
+    "armature": 0.02386118636875335,
     "q_offset": 0.0,
-    "max_velocity": 7.2839694698846635,
+    "max_velocity": 4.710071763762183,
     "command_delay": 0.0049807526194816515,
-    "friction_base": 0.032819239824949414,
+    "friction_base": 0.03078532463706399,
     "friction_stribeck": 4.257322248151969e-05,
-    "load_friction_motor": 0.41915932210424217,
-    "load_friction_external": 0.14896821275174338,
+    "load_friction_motor": 0.3150791361247744,
+    "load_friction_external": 0.2879418819298176,
     "load_friction_motor_stribeck": 0.00012448975632695385,
     "load_friction_external_stribeck": 0.1422905635963302,
     "load_friction_motor_quad": 0.007594943296670792,
     "load_friction_external_quad": 0.00340408727365082,
-    "dtheta_stribeck": 1.9552037068777175,
+    "dtheta_stribeck": 1.2501092056950172,
     "alpha": 9.93094944677977,
-    "friction_viscous": 0.022418603124762345,
+    "friction_viscous": 0.0022600016564008245,
     "model": "m6",
     "actuator": "sts3215",
-    "stribeck_scale": 0.11868986732471828,
-    "delay": 0.008674859178997206,
-    "feedback_delay": 0.0002456299177514329,
-    "max_current": 2.974883423919483,
+    "stribeck_scale": 0.07753205231189658,
+    "delay": 0.0036575854259987186,
+    "feedback_delay": 0.00017738222183025815,
+    "max_current": 2.754467163161826,
     "gear_stiffness": [
-        387.93508491308967,
-        566.7034952294371,
-        589.2018443858624,
-        520.2190094633654,
-        112.51123699971134
+        322.72261930120527,
+        589.6578813418134,
+        457.02548361537526,
+        553.3255998607889,
+        47.99422964843285
     ],
-    "gear_damping": 0.164721091578527,
+    "gear_damping": 0.02926158631171818,
     "friction_scale": [
-        1.1893974206027191,
-        0.8696783310332048,
-        0.9227384146477449,
-        0.7510652940225746,
-        0.5659119868256463
+        1.037155030206851,
+        1.1308877935198305,
+        1.1580181923616881,
+        0.8035772207621411,
+        0.9996528653715224
     ],
     "joints": [
         "shoulder_pan",
@@ -45,6 +45,11 @@
         "wrist_flex",
         "wrist_roll"
     ],
-    "fitted_from": "measurements/servo/2026-11-08_212508",
-    "fit_report": "measurements/servo/fit_2026-11-08_221524"
+    "fitted_from": [
+        "measurements/servo/2026-11-08_212508",
+        "measurements/servo/2026-11-10_092831_strokes",
+        "measurements/servo/2026-11-10_093340_strokes",
+        "measurements/servo/2026-11-10_093504_strokes"
+    ],
+    "fit_report": "measurements/servo/fit_2026-11-10_093618"
 }
