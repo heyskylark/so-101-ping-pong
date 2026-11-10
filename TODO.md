@@ -357,7 +357,9 @@ tilt 0.05°). Targets printed (`make_calib_targets.py`: tag + 5×7 ChArUco of 30
       ran sideways (7 of 11 toward +y) and the overhead range-from-size drifts ~±7 % across the picture (vs the
       wrist ray, 65 overlapping detections). Size scales from it kept: overhead 1.074, wrist 0.920 (±0.02).
       Frame tilt matters: 1° ≈ the paddle-tilt error in §4 (~3 cm drift/bounce).
-- [ ] Level check: ball resting on the "flat" paddle must not roll.
+- [x] Level check: a ball set down at the centre of the paddle at ready (`arm_pose.py ready`) stays put: the paddle is
+      level in true gravity to ~1° (lift +9.75°, table tilt and the other offsets together). Ball-flight gravity
+      couldn't resolve it (drops: 0.13–0.23 s arcs, hand hides the ball from the overhead camera; ±2–6°).
 
 ## 4. Task physics / feasibility
 
