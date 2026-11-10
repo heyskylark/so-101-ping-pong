@@ -99,16 +99,34 @@ def set_controls(device: str, exposure_ms: float) -> list[str]:
     return problems
 
 
+def ignore_path(name: str):
+    """Pixels the ball detector skips for camera `name` (255 = ignore): `scripts/cameras.py mask` makes it."""
+    return CALIB_DIR / f"ignore_{name}.png"
+
+
+def load_ignore(name: str) -> np.ndarray | None:
+    p = ignore_path(name)
+    return cv2.imread(str(p), cv2.IMREAD_GRAYSCALE) if p.exists() else None
+
+
 class BallDetector:
-    def __init__(self, color: BallColor, min_d: float = 4.0, max_d: float = 220.0, min_fill: float = 0.55):
+    """`ignore`: pixels never counted as ball (a camera's own ball-coloured clutter: for the wrist camera, the blade
+    edge, which is fixed in its picture)."""
+
+    def __init__(self, color: BallColor, min_d: float = 4.0, max_d: float = 220.0, min_fill: float = 0.55,
+                 ignore: np.ndarray | None = None):
         self.color, self.min_d, self.max_d, self.min_fill = color, min_d, max_d, min_fill
         self.lo = np.array([color.h[0], color.s[0], color.v[0]], np.uint8)
         self.hi = np.array([color.h[1], color.s[1], color.v[1]], np.uint8)
         self.kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        self.keep = None if ignore is None else (ignore == 0).astype(np.uint8) * 255
 
-    def mask(self, frame_bgr: np.ndarray) -> np.ndarray:
+    def mask(self, frame_bgr: np.ndarray, raw: bool = False) -> np.ndarray:
+        """Ball-coloured pixels (255), after the ignore mask unless `raw`."""
         hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
         m = cv2.inRange(hsv, self.lo, self.hi)
+        if self.keep is not None and not raw:
+            m = cv2.bitwise_and(m, self.keep)
         return cv2.morphologyEx(m, cv2.MORPH_OPEN, self.kernel)
 
     def __call__(self, frame_bgr: np.ndarray) -> tuple[float, float, float] | None:
@@ -213,7 +231,7 @@ class BallCameras:
         missing = [n for n in names if n not in rig.cameras]
         if missing:
             raise SystemExit(f"no device for {missing} in {RIG}: run `scripts/cameras.py assign <name> <device>`")
-        self.cams = [UvcCamera(n, rig.cameras[n], BallDetector(rig.ball)) for n in names]
+        self.cams = [UvcCamera(n, rig.cameras[n], BallDetector(rig.ball, ignore=load_ignore(n))) for n in names]
 
     def start(self) -> None:
         for c in self.cams:
