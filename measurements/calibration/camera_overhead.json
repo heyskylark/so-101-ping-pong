@@ -48,8 +48,8 @@
     0.03755618566394258,
     0.5078584254468216
   ],
-  "stamp_offset": -0.03,
-  "readout": 0.0,
+  "stamp_offset": -0.004574215181585311,
+  "readout": 0.033105908898060796,
   "size_scale": 1.0,
   "noise": {
     "pixel": 1.0,
@@ -122,6 +122,12 @@
       "uncertainty_deg": 0.4676072254850492,
       "lift_from_table": true,
       "lift_from": "paddle height"
+    },
+    "timing": {
+      "date": "2026-11-09_214632",
+      "frames": 271,
+      "rms_px": 13.550996148943913,
+      "raw": "2026-11-09_214632_timing_overhead.npz"
     }
   }
 }

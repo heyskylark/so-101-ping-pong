@@ -738,8 +738,8 @@ def cmd_timing(args) -> int:
     dets = [(st, d) for st, d in dets if t_enc[0] + 0.2 < st < t_enc[-1] - 0.2]
     print(f"{len(dets)} frames with the target during the {args.seconds:.0f} s motion "
           f"({len(dets) / max(t_enc[-1] - t_enc[0] - 0.4, 1e-6):.1f} per second; the camera runs at ~29.5)")
-    save_raw(f"timing_{name}", t_enc=t_enc, q_enc=q_enc, stamps=np.array([st for st, _ in dets]),
-             dets=[d for _, d in dets], offsets=np.array(arm.joint_offsets))
+    raw = save_raw(f"timing_{name}", t_enc=t_enc, q_enc=q_enc, stamps=np.array([st for st, _ in dets]),
+                   observed=[d for _, d in dets], offsets=np.array(arm.joint_offsets))
     if len(dets) < 60:
         raise SystemExit(f"only {len(dets)} frames with the target during the motion")
     stamps = np.array([st for st, _ in dets])
@@ -760,7 +760,6 @@ def cmd_timing(args) -> int:
 
         extra0 = np.concatenate([rvec(np.array(m["board_R"])), np.array(m["board_p"])])
         fit = fit_timing(t_enc, q_enc, stamps, rows_f, observed, predict, extra0=extra0)
-    raw = save_raw(f"timing_{name}", t_enc=t_enc, q_enc=q_enc, stamps=stamps, observed=observed)
     print(f"{name}: capture = buffer stamp {1e3 * fit['offset']:+.1f} ms + {1e3 * fit['readout']:.1f} ms x row; RMS "
           f"{fit['rms_px']:.2f} px over {len(stamps)} frames (stamp latency median "
           f"{1e3 * np.median(t_enc[-1] - stamps):.0f} ms behind the last encoder read)")
