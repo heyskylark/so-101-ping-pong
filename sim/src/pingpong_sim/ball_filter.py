@@ -33,6 +33,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+import numpy as np
 import torch
 
 from pingpong_sim.ball import BALL_RADIUS, DRAG_K, G
@@ -187,6 +188,123 @@ def project(p: torch.Tensor, cam_R: torch.Tensor, cam_p: torch.Tensor):
     return z, Hc @ cam_R.transpose(1, 2), front
 
 
+# -- one world on the CPU ------------------------------------------------------------------------------------------
+# The same propagation (flight, transition, process noise, paddle history, bounce) in float64 numpy for B = 1:
+# what the robot runs every tick. tests/test_fast_paths.py keeps it equal to the batched torch version.
+
+
+def _accel_np(v: np.ndarray) -> np.ndarray:
+    a = -DRAG_K * math.sqrt(v @ v) * v
+    a[2] -= G
+    return a
+
+
+def flight_np(p: np.ndarray, v: np.ndarray, h: float) -> tuple[np.ndarray, np.ndarray]:
+    k1v = _accel_np(v)
+    k2p = v + 0.5 * h * k1v
+    k2v = _accel_np(k2p)
+    k3p = v + 0.5 * h * k2v
+    k3v = _accel_np(k3p)
+    k4p = v + h * k3v
+    k4v = _accel_np(k4p)
+    return p + h / 6 * (v + 2 * k2p + 2 * k3p + k4p), v + h / 6 * (k1v + 2 * k2v + 2 * k3v + k4v)
+
+
+_EYE3, _EYE6 = np.eye(3), np.eye(6)
+
+
+def _transition_np(v: np.ndarray, h: float) -> np.ndarray:
+    speed = max(math.sqrt(v @ v), 1e-6)
+    Jd = -DRAG_K * (speed * _EYE3 + np.outer(v, v) / speed)
+    F = _EYE6.copy()
+    F[:3, 3:] = h * _EYE3 + 0.5 * h * h * Jd
+    F[3:, 3:] = _EYE3 + h * Jd + 0.5 * h * h * (Jd @ Jd)
+    return F
+
+
+def _process_noise_np(q: float, h: float) -> np.ndarray:
+    Q = np.zeros((6, 6))
+    Q[:3, :3] = h**3 / 3 * _EYE3
+    Q[:3, 3:] = Q[3:, :3] = h**2 / 2 * _EYE3
+    Q[3:, 3:] = h * _EYE3
+    return q * q * Q
+
+
+class _HistoryNp:
+    """World 0 of a TickHistory as numpy, interpolated like TickHistory.at."""
+
+    def __init__(self, h: TickHistory, keys):
+        self.n_valid = min(h.count, h.L)
+        self.t_first = h.t_last - (self.n_valid - 1) * h.dt
+        self.start, self.L, self.dt = h.count - self.n_valid, h.L, h.dt
+        self.buf = {k: h.buf[k][0].double().numpy() for k in keys}
+
+    def at(self, t: float) -> dict[str, np.ndarray]:
+        n = self.n_valid
+        x = min(max((t - self.t_first) / self.dt, 0.0), n - 1)
+        i0 = min(math.floor(x), n - 2) if n > 1 else 0
+        i1 = min(i0 + 1, n - 1)
+        w = min(max((x - i0), 0.0), 1.0)
+        a, c = (self.start + i0) % self.L, (self.start + i1) % self.L
+        return {k: b[a] + w * (b[c] - b[a]) for k, b in self.buf.items()}
+
+
+def _bounce_np(cfg: BallFilterCfg, p, v, p1, v1, P, h: float, a: dict, b: dict):
+    s0 = (p - a["center"]) @ a["normal"] - BALL_RADIUS
+    s1 = (p1 - b["center"]) @ b["normal"] - BALL_RADIUS
+    f = min(max(s0 / max(s0 - s1, 1e-9), 0.0), 1.0)
+    pc, vc = p + f * (p1 - p), v + f * (v1 - v)
+    c = a["center"] + f * (b["center"] - a["center"])
+    nrm = a["normal"] + f * (b["normal"] - a["normal"])
+    nrm = nrm / max(math.sqrt(nrm @ nrm), 1e-9)
+    vp = a["vel"] + f * (b["vel"] - a["vel"])
+    d = pc - c
+    lateral = math.sqrt(max((d - (d @ nrm) * nrm) @ (d - (d @ nrm) * nrm), 0.0))
+    rel = vc - vp
+    vn = rel @ nrm
+    vt = rel - vn * nrm
+    if not (s0 > -0.015 and s1 < 0 and vn < 0 and lateral < cfg.blade_radius and h > 0):
+        return p1, v1, P
+    e, kt = cfg.restitution, cfg.tangential_keep
+    vout = vp - e * vn * nrm + kt * vt
+    pb, vb = flight_np(pc, vout, (1 - f) * h)
+    nn = np.outer(nrm, nrm)
+    M = -e * nn + kt * (_EYE3 - nn)
+    J = _EYE6.copy()
+    J[3:, 3:] = M
+    Qv = (cfg.restitution_std * vn) ** 2 * nn + cfg.tangential_std**2 * (vt @ vt) * (_EYE3 - nn) \
+        + cfg.paddle_speed_std**2 * _EYE3
+    Pb = J @ P @ J.T
+    Pb[3:, 3:] += Qv
+    return pb, vb, Pb
+
+
+def _propagate_one(cfg: BallFilterCfg, x: torch.Tensor, P: torch.Tensor, t0: float, t1: float,
+                   paddle: TickHistory | None):
+    dt = max(t1 - t0, 0.0)
+    if dt <= 0.0:
+        return x, P
+    n_steps = max(1, math.ceil(dt / cfg.max_step - 1e-9))
+    h = dt / n_steps
+    xs, Ps = x[0].double().numpy(), P[0].double().numpy()
+    hist = _HistoryNp(paddle, _PADDLE_KEYS) if paddle is not None else None
+    t = t0
+    pad = hist.at(t) if hist is not None else None
+    Q = _process_noise_np(cfg.accel_noise, h)
+    for _ in range(n_steps):
+        p, v = xs[:3], xs[3:]
+        p1, v1 = flight_np(p, v, h)
+        F = _transition_np(0.5 * (v + v1), h)
+        Ps = F @ Ps @ F.T + Q
+        t = t + h
+        if hist is not None:
+            pad_next = hist.at(t)
+            p1, v1, Ps = _bounce_np(cfg, p, v, p1, v1, Ps, h, pad, pad_next)
+            pad = pad_next
+        xs = np.concatenate([p1, v1])
+    return (torch.tensor(xs, dtype=x.dtype)[None], torch.tensor(Ps, dtype=P.dtype)[None])
+
+
 class BallFilter:
     def __init__(self, cfg: BallFilterCfg, num_envs: int, device):
         self.cfg, self.n, self.dev = cfg, num_envs, device
@@ -209,7 +327,13 @@ class BallFilter:
 
     def propagate(self, x, P, t0, t1, paddle: TickHistory | None):
         """Predict (x, P) from t0 to t1 >= t0 (B,), bouncing off the paddle face (`paddle` holds center, normal,
-        vel). Worlds with t1 == t0 are returned unchanged."""
+        vel). Worlds with t1 == t0 are returned unchanged. One world on the CPU takes the float64 numpy path (same
+        steps; batched torch pays ~5 us of dispatch per tiny op, 10x the robot's control budget)."""
+        if self.n == 1 and x.device.type == "cpu":
+            return _propagate_one(self.cfg, x, P, float(t0[0]), float(t1[0]), paddle)
+        return self._propagate_batched(x, P, t0, t1, paddle)
+
+    def _propagate_batched(self, x, P, t0, t1, paddle: TickHistory | None):
         cfg = self.cfg
         dt = (t1 - t0).clamp_min(0)
         dt_max = float(dt.max()) if dt.numel() else 0.0

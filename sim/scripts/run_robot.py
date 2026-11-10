@@ -245,7 +245,8 @@ def main() -> int:
                 world.launch()  # the "person" drops the first ball once the arm is ready
             print(f"at ready; running {'the scripted bouncer' if args.scripted else policy_dir} for {args.seconds:.0f} s. "
                   "Hold a ball still above the paddle, or drop it there.")
-            run.run(args.seconds)
+            with torch.inference_mode():  # less dispatch per tensor op
+                run.run(args.seconds)
             session.move_to(session.start)
         finally:
             cams.stop()

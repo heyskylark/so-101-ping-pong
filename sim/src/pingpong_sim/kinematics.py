@@ -11,6 +11,8 @@ uses (x right, y down, z along the optical axis).
 
 from __future__ import annotations
 
+import math
+
 import mujoco
 import numpy as np
 import torch
@@ -55,6 +57,19 @@ class ArmKinematics:
         self.cam_p = f(R_l.T @ (d.cam_xpos[cam] - d.xpos[last]))
         jid = [mj_model.joint(prefix + j).id for j in ARM_JOINTS]
         self.lo, self.hi = f(mj_model.jnt_range[jid, 0]), f(mj_model.jnt_range[jid, 1])
+        # The same chain in float64 numpy for one world on the CPU (the robot: batched torch costs ~0.4 ms a chain
+        # in op dispatch, and a control tick needs several); the last result is kept, most calls repeat the angles.
+        self._np_base = (d.xmat[base].reshape(3, 3).copy(), d.xpos[base].copy())
+        self._np_links = []
+        for R_l, p_l, axis, jpos in self.links:
+            if axis is None:
+                self._np_links.append((R_l.double().cpu().numpy(), p_l.double().cpu().numpy(), None, None))
+                continue
+            k = axis.double().cpu().numpy() / np.linalg.norm(axis.double().cpu().numpy())
+            K = np.array([[0, -k[2], k[1]], [k[2], 0, -k[0]], [-k[1], k[0], 0]])
+            self._np_links.append((R_l.double().cpu().numpy(), p_l.double().cpu().numpy(), (k, K, K @ K),
+                                   jpos.double().cpu().numpy()))
+        self._np_last: tuple | None = None
 
     @staticmethod
     def _rot(axis: torch.Tensor, angle: torch.Tensor) -> torch.Tensor:
@@ -67,6 +82,8 @@ class ArmKinematics:
 
     def _chain(self, q: torch.Tensor):
         """Last link's world rotation (B, 3, 3) and position (B, 3), joint origins and world joint axes (B, 5, 3)."""
+        if q.shape[0] == 1 and q.device.type == "cpu":
+            return self._chain_one(q)
         B = q.shape[0]
         R = self.base_R.expand(B, 3, 3)
         p = self.base_p.expand(B, 3)
@@ -86,6 +103,32 @@ class ArmKinematics:
                 R = R @ Rj
                 k += 1
         return R, p, torch.stack(origins, 1), torch.stack(axes, 1)
+
+    def _chain_one(self, q: torch.Tensor):
+        qn = q[0].detach().double().numpy()
+        key = qn.tobytes()
+        if self._np_last is not None and self._np_last[0] == key:
+            return self._np_last[1]
+        R, p = self._np_base
+        origins, axes = [], []
+        k = 0
+        for R_l, p_l, rod, jpos in self._np_links:
+            p = p + R @ p_l
+            R = R @ R_l
+            if rod is not None:
+                axis, K, KK = rod
+                o = p + R @ jpos
+                origins.append(o)
+                axes.append(R @ axis)
+                Rj = np.eye(3) + math.sin(qn[k]) * K + (1 - math.cos(qn[k])) * KK
+                p = o - R @ (Rj @ jpos)
+                R = R @ Rj
+                k += 1
+        dt = self.base_R.dtype
+        out = (torch.tensor(R, dtype=dt)[None], torch.tensor(p, dtype=dt)[None],
+               torch.tensor(np.array(origins), dtype=dt)[None], torch.tensor(np.array(axes), dtype=dt)[None])
+        self._np_last = (key, out)
+        return out
 
     def fk(self, q: torch.Tensor):
         """q (B, 5) encoder angles -> face centre (B, 3), face normal (B, 3), joint origins (B, 5, 3) and world

@@ -30,7 +30,7 @@ from dataclasses import dataclass
 import torch
 
 from pingpong_sim.ball import BALL_RADIUS, DRAG_K, G
-from pingpong_sim.ball_filter import flight
+from pingpong_sim.ball_filter import flight, flight_np
 from pingpong_sim.kinematics import ArmKinematics
 from pingpong_sim.robot import ASSETS
 
@@ -138,7 +138,24 @@ class ScriptedBouncer:
 
     def predict(self, p: torch.Tensor, v: torch.Tensor):
         """First downward crossing of the hitting plane: time from now (B,; inf if none within the horizon),
-        ball position and velocity there."""
+        ball position and velocity there. One world on the CPU takes the float64 numpy path (same steps)."""
+        if self.n == 1 and p.device.type == "cpu":
+            return self._predict_one(p, v)
+        return self._predict_batched(p, v)
+
+    def _predict_one(self, p: torch.Tensor, v: torch.Tensor):
+        dt, z = self.cfg.predict_dt, self.z_ball
+        ps, vs = p[0].double().numpy(), v[0].double().numpy()
+        for k in range(int(self.cfg.predict_horizon / dt)):
+            pn, vn = flight_np(ps, vs, dt)
+            if ps[2] >= z and pn[2] < z and vn[2] < 0:
+                f = (ps[2] - z) / max(ps[2] - pn[2], 1e-9)
+                return (torch.tensor([(k + f) * dt], dtype=p.dtype), torch.tensor(ps + f * (pn - ps), dtype=p.dtype)[None],
+                        torch.tensor(vs + f * (vn - vs), dtype=v.dtype)[None])
+            ps, vs = pn, vn
+        return torch.tensor([math.inf], dtype=p.dtype), p.clone(), v.clone()
+
+    def _predict_batched(self, p: torch.Tensor, v: torch.Tensor):
         cfg = self.cfg
         dt = cfg.predict_dt
         h = torch.full((self.n,), dt, device=self.dev)
