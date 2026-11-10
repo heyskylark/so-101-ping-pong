@@ -83,22 +83,36 @@ def pnp(K, D, obj: np.ndarray, uv: np.ndarray, square: bool = False) -> tuple[np
 
 # ---------------------------------------------------------------------------------------------------- intrinsics
 
+def lens_monotonic(D, theta_max: float = 1.25) -> bool:
+    """The fisheye curve theta_d(theta) keeps increasing out to theta_max (rad): it doesn't fold back."""
+    k = np.asarray(D, float).ravel()
+    t = np.linspace(0, theta_max, 400)
+    td = t * (1 + k[0] * t**2 + k[1] * t**4 + k[2] * t**6 + k[3] * t**8)
+    return bool(np.all(np.diff(td) > 0))
+
+
 def fit_intrinsics(obj: list[np.ndarray], img: list[np.ndarray], size: tuple[int, int],
-                   f0: float = 719.0) -> dict:
-    """Views of (N_i, 3) board points and their (N_i, 2) pixels -> K, D, RMS reprojection error (px)."""
+                   f0: float = 719.0, n_dist: int = 2) -> dict:
+    """Views of (N_i, 3) board points and their (N_i, 2) pixels -> K, D, RMS reprojection error (px).
+    `n_dist` distortion terms (k1..k4): 2 by default. With 4, the outer terms are free where the board didn't
+    reach and folded the lens curve back on itself (first real fit); on 70 pooled views 2, 3 and 4 terms agreed
+    to 0.01 deg along the ball's path with the same held-out error."""
     K = np.array([[f0, 0, size[0] / 2], [0, f0, size[1] / 2], [0, 0, 1]], float)
     D = np.zeros((4, 1))
     # OpenCV 5's fisheye.calibrate takes each view as a (1, N, 3) / (1, N, 2) array.
     o = [np.asarray(a, np.float64).reshape(1, -1, 3) for a in obj]
     i = [np.asarray(a, np.float64).reshape(1, -1, 2) for a in img]
     flags = cv2.CALIB_RECOMPUTE_EXTRINSIC | cv2.CALIB_FIX_SKEW | cv2.CALIB_USE_INTRINSIC_GUESS  # OpenCV 5 names
-    crit = (cv2.TERM_CRITERIA_COUNT + cv2.TERM_CRITERIA_EPS, 200, 1e-10)
+    for k, f in zip((2, 3, 4), (cv2.CALIB_FIX_K2, cv2.CALIB_FIX_K3, cv2.CALIB_FIX_K4)):
+        if n_dist < k:
+            flags |= f
+    crit = (cv2.TERM_CRITERIA_COUNT + cv2.TERM_CRITERIA_EPS, 300, 1e-12)
     rms, K, D, rv, tv = cv2.fisheye.calibrate(o, i, size, K, D, flags=flags, criteria=crit)
     per_view = []
     for oo, ii, r, t in zip(o, i, rv, tv):
         uv, _ = cv2.fisheye.projectPoints(oo.reshape(-1, 1, 3), r, t, K, D)
         per_view.append(float(np.sqrt(np.mean(np.sum((uv.reshape(-1, 2) - ii.reshape(-1, 2)) ** 2, -1)))))
-    return {"K": K, "D": D.ravel(), "rms_px": float(rms), "per_view_px": per_view}
+    return {"K": K, "D": D.ravel(), "rms_px": float(rms), "per_view_px": per_view, "monotonic": lens_monotonic(D)}
 
 
 # ---------------------------------------------------------------------------------------------------- overhead

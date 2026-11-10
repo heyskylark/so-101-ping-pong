@@ -126,7 +126,52 @@ def cmd_targets(args) -> int:
 
 # ---------------------------------------------------------------------------------------------------- intrinsics
 
+def intrinsics_sessions(camera: str) -> list[Path]:
+    return sorted(RAW.glob(f"*_intrinsics_{camera}.npz"))
+
+
+def coverage(uv: np.ndarray, W: int, H: int) -> np.ndarray:
+    """Board corners per cell of an 8 x 4 grid over the picture (rows top to bottom)."""
+    g, _, _ = np.histogram2d(uv[:, 0], uv[:, 1], bins=[8, 4], range=[[0, W], [0, H]])
+    return g.T.astype(int)
+
+
+def fit_and_save_intrinsics(camera: str, W: int, H: int, sessions: list[Path]) -> None:
+    det = BoardDetector(min_corners=12)
+    obj, img = [], []
+    for path in sessions:
+        r = np.load(path, allow_pickle=True)
+        for ids, uv in zip(r["ids"], r["uv"]):
+            obj.append(det.corners3d[np.asarray(ids, int)])
+            img.append(np.asarray(uv, float))
+    fit = fit_intrinsics(obj, img, (W, H))
+    c = camera_calib(camera)
+    c.width, c.height, c.K, c.D = W, H, fit["K"].tolist(), fit["D"].tolist()
+    xy = c.undistort(np.array([[0, fit["K"][1, 2]], [W, fit["K"][1, 2]], [fit["K"][0, 2], 0], [fit["K"][0, 2], H]]))
+    th = np.degrees(np.arctan(np.linalg.norm(xy, axis=1)))
+    cov = coverage(np.concatenate(img), W, H)
+    c.steps["intrinsics"] = {"date": stamp(), "views": len(obj), "rms_px": fit["rms_px"],
+                             "raw": [p.name for p in sessions], "coverage": cov.tolist()}
+    print(f"RMS {fit['rms_px']:.2f} px over {len(obj)} views from {len(sessions)} session(s) (worst view "
+          f"{max(fit['per_view_px']):.2f} px); f {fit['K'][0, 0]:.1f} / {fit['K'][1, 1]:.1f} px, centre "
+          f"{fit['K'][0, 2]:.1f}, {fit['K'][1, 2]:.1f}; D {np.round(fit['D'], 4).tolist()}; field of view "
+          f"{th[0] + th[1]:.0f} x {th[2] + th[3]:.0f} deg")
+    print("board corners per picture cell (empty cells: the lens model is extrapolated there):")
+    print("\n".join("  " + " ".join(f"{v:4d}" for v in row) for row in cov))
+    if not fit["monotonic"]:
+        raise SystemExit("the fitted lens curve folds back near the edges: add views at the edges and corners")
+    print("saved", c.save())
+
+
 def cmd_intrinsics(args) -> int:
+    """Collect views (unless --refit), then fit on every saved session of this camera (only this one with --fresh)."""
+    if args.refit:
+        sessions = intrinsics_sessions(args.camera)
+        if not sessions:
+            raise SystemExit(f"no saved views for {args.camera}")
+        c = camera_calib(args.camera)
+        fit_and_save_intrinsics(args.camera, c.width, c.height, sessions)
+        return 0
     det = BoardDetector(min_corners=12)
     cam = start_camera(args.camera, det)
     W, H = cam.cfg.width, cam.cfg.height
@@ -166,16 +211,9 @@ def cmd_intrinsics(args) -> int:
         cv2.destroyAllWindows()
     if len(views) < 10:
         raise SystemExit(f"only {len(views)} views; need >= 10")
-    obj = [det.corners3d[ids] for ids, _ in views]
-    fit = fit_intrinsics(obj, [uv for _, uv in views], (W, H))
-    c = camera_calib(args.camera)
-    c.width, c.height, c.K, c.D = W, H, fit["K"].tolist(), fit["D"].tolist()
     raw = save_raw(f"intrinsics_{args.camera}", ids=[i for i, _ in views], uv=[u for _, u in views])
-    c.steps["intrinsics"] = {"date": stamp(), "views": len(views), "rms_px": fit["rms_px"], "raw": raw.name}
-    print(f"RMS {fit['rms_px']:.2f} px over {len(views)} views (worst view {max(fit['per_view_px']):.2f} px); "
-          f"f {fit['K'][0, 0]:.1f} / {fit['K'][1, 1]:.1f} px, centre {fit['K'][0, 2]:.1f}, {fit['K'][1, 2]:.1f}; "
-          f"D {np.round(fit['D'], 4).tolist()}")
-    print("saved", c.save())
+    sessions = [raw] if args.fresh else intrinsics_sessions(args.camera)
+    fit_and_save_intrinsics(args.camera, W, H, sessions)
     return 0
 
 
@@ -606,6 +644,8 @@ def main() -> int:
     p = sub.add_parser("intrinsics")
     p.add_argument("camera", choices=("overhead", "wrist"))
     p.add_argument("--views", type=int, default=30)
+    p.add_argument("--fresh", action="store_true", help="fit only this session's views (default: pool all saved ones)")
+    p.add_argument("--refit", action="store_true", help="no camera: refit from the saved views")
     for name, n in (("overhead", 20), ("wrist", 24)):
         p = sub.add_parser(name)
         p.add_argument("--port", required=True)
