@@ -38,7 +38,7 @@ from pingpong_sim.real.calib_solve import (Links, angle_deg, fit_gravity, fit_in
                                            rvec, tag_on_face, wrist_poses)
 from pingpong_sim.real.camera_model import (CALIB_DIR, ArmCalib, CameraCalib, apply_wrist_mount, nominal,
                                             to_measurements)
-from pingpong_sim.real.cameras import BallCameras, RigConfig, UvcCamera
+from pingpong_sim.real.cameras import MAX_BALL_PX, MIN_BALL_PX, BallCameras, RigConfig, UvcCamera
 from pingpong_sim.real.targets import SPEC, BoardDetector, TagDetector, load_spec
 from pingpong_sim.robot import READY_JOINT_POS
 from pingpong_sim.servo_bus import JOINTS
@@ -539,6 +539,7 @@ def cmd_gravity(args) -> int:
     g = np.load(raw)
     names = [str(n) for n in g["cameras"]]
     enc_t, enc_q_raw, dets = g["enc_t"], g["enc_q"], g["dets"]
+    dets = dets[(dets[:, 4] >= MIN_BALL_PX) & (dets[:, 4] <= MAX_BALL_PX)]  # recordings from before the size limits
     use = [n for n in names if n in args.cameras]
     calibs = {n: CameraCalib.load(n) for n in use}
     off = np.array(arm.joint_offsets)

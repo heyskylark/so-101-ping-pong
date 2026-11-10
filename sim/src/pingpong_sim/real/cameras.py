@@ -109,11 +109,17 @@ def load_ignore(name: str) -> np.ndarray | None:
     return cv2.imread(str(p), cv2.IMREAD_GRAYSCALE) if p.exists() else None
 
 
+# Ball diameter limits (px, f ~830 px/rad): at most ~0.8 m from either camera the 40 mm ball is >= ~40 px; at the
+# wrist camera's 0.08 m minimum range ~400 px. The first real gravity recording had ~1000 speckles of 4-15 px on the
+# red rubber's edge (it reads orange-ish under this light) between the real ball's 50-180 px detections.
+MIN_BALL_PX, MAX_BALL_PX = 20.0, 420.0
+
+
 class BallDetector:
     """`ignore`: pixels never counted as ball (a camera's own ball-coloured clutter: for the wrist camera, the blade
     edge, which is fixed in its picture)."""
 
-    def __init__(self, color: BallColor, min_d: float = 4.0, max_d: float = 220.0, min_fill: float = 0.55,
+    def __init__(self, color: BallColor, min_d: float = MIN_BALL_PX, max_d: float = MAX_BALL_PX, min_fill: float = 0.55,
                  ignore: np.ndarray | None = None):
         self.color, self.min_d, self.max_d, self.min_fill = color, min_d, max_d, min_fill
         self.lo = np.array([color.h[0], color.s[0], color.v[0]], np.uint8)
