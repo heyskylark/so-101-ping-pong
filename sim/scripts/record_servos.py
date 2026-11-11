@@ -407,6 +407,8 @@ def cmd_strokes(args) -> int:
     goals, plans, seg, segments, impacts = [], [], [], [], []
     series = [(a, dx, dy) for a in (args.apexes or STROKE_APEXES) for dx, dy in STROKE_OFFSETS]
     timing = {k: v for k, v in (("stroke_time", args.stroke_time), ("follow", args.follow)) if v is not None}
+    if args.stroke_joint:
+        timing["stroke_joint"] = JOINTS.index(args.stroke_joint)
     for i, (apex, dx, dy) in enumerate(series):
         g, pl, imp = stroke_series(kin_t, q_ready, apex, dx, dy, **timing)
         hold = np.repeat(q_ready[None], int(1.0 * RATE), axis=0)
@@ -469,6 +471,8 @@ def main() -> int:
     ap.add_argument("command", choices=("map", "record", "strokes"))
     ap.add_argument("--stroke-time", type=float, help="strokes: the bouncer's stroke time (default its own)")
     ap.add_argument("--follow", type=float, help="strokes: the bouncer's follow-through time (default its own)")
+    ap.add_argument("--stroke-joint", choices=["elbow_flex", "wrist_flex"],
+                    help="strokes: the joint that makes the stroke (default the bouncer's, the elbow)")
     ap.add_argument("--apexes", type=float, nargs="+", help="strokes: bounce heights (default 0.25 0.20 0.15)")
     src = ap.add_mutually_exclusive_group(required=True)
     src.add_argument("--port", help="servo bus serial port, e.g. /dev/ttyACM0")

@@ -93,7 +93,7 @@ class ScriptedBouncer:
         self.z_ball = cfg.hit_z + BALL_RADIUS
         # Gravity the bouncer believes, per world (with its filter's: training draws a mismatch; deployed: true).
         self.g = torch.full((num_envs,), G, device=dev)
-        self.vz_out = torch.full((num_envs,), apex_speed(cfg.apex), device=dev)
+        self.vz_out = torch.full((num_envs,), apex_speed(cfg.apex, G), device=dev)
         self.A_inv = torch.linalg.inv(torch.tensor(tm["A"], device=dev))
         self.B = torch.tensor(tm["B"], device=dev)
         self.c = torch.tensor(tm["c"], device=dev)

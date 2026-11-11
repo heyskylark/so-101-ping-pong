@@ -33,9 +33,11 @@ CONTROL_DT = 0.01
 DECIMATION = round(CONTROL_DT / SIM_DT)
 
 
-def make_env_cfg(residual: bool = True, play: bool = False) -> ManagerBasedRlEnvCfg:
-    """`residual`: actions correct the scripted bouncer's goal (else: offsets from the ready pose)."""
+def make_env_cfg(residual: bool = True, play: bool = False, stroke_joint: str = "elbow_flex") -> ManagerBasedRlEnvCfg:
+    """`residual`: actions correct the scripted bouncer's goal (else: offsets from the ready pose). `stroke_joint`:
+    the one joint the scripted bouncer strokes with (the elbow, or the wrist: a third of the inertia to swing)."""
     task = TaskCfg(use_bouncer=residual)
+    task.bouncer = replace(task.bouncer, stroke_joint=ARM_JOINTS.index(stroke_joint))
 
     def actor_terms(noisy: bool) -> dict[str, ObservationTermCfg]:
         noise = (lambda n: Unoise(n_min=-n, n_max=n)) if noisy else (lambda n: None)  # noqa: E731
@@ -150,7 +152,7 @@ def make_env_cfg(residual: bool = True, play: bool = False) -> ManagerBasedRlEnv
     return cfg
 
 
-def make_ppo_cfg(residual: bool = True) -> RslRlOnPolicyRunnerCfg:
+def make_ppo_cfg(residual: bool = True, experiment_name: str | None = None) -> RslRlOnPolicyRunnerCfg:
     return RslRlOnPolicyRunnerCfg(
         actor=RslRlModelCfg(
             hidden_dims=(256, 256, 128),
@@ -175,7 +177,7 @@ def make_ppo_cfg(residual: bool = True) -> RslRlOnPolicyRunnerCfg:
             desired_kl=0.01,
             max_grad_norm=1.0,
         ),
-        experiment_name="pingpong_residual" if residual else "pingpong_direct",
+        experiment_name=experiment_name or ("pingpong_residual" if residual else "pingpong_direct"),
         logger="tensorboard",
         save_interval=100,
         num_steps_per_env=32,

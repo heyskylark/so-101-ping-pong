@@ -50,6 +50,8 @@ def main() -> None:
     ap.add_argument("--stroke-time", type=float, help="s, the stroke's constant-acceleration time (default 0.12)")
     ap.add_argument("--follow", type=float, help="s, follow-through back to ready after impact (default 0.15)")
     ap.add_argument("--impact-bias", type=float, default=0.0, help="s, added to every predicted impact time")
+    ap.add_argument("--stroke-joint", choices=["elbow_flex", "wrist_flex"], default="elbow_flex",
+                    help="the one joint that makes the stroke")
     ap.add_argument("--drop", type=float, default=0.30, help="ball release height above the hitting plane [m]")
     ap.add_argument("--randomize", action="store_true")
     ap.add_argument("--ball-latency", type=float, default=0.0, help="ms, rounded to control steps")
@@ -89,7 +91,8 @@ def main() -> None:
         ball_filter_mod.G = bouncer_mod.G = args.predictor_gravity
     timing = {k: v for k, v in (("stroke_time", args.stroke_time), ("follow", args.follow)) if v is not None}
     timing["impact_bias"] = args.impact_bias
-    cfg = BouncerCfg(apex=args.apex, feedforward=not args.no_feedforward, **timing)
+    cfg = BouncerCfg(apex=args.apex, feedforward=not args.no_feedforward, stroke_joint=ARM_JOINTS.index(args.stroke_joint),
+                     **timing)
     kin = ArmKinematics(m, device=dev)
     ids, _ = h.robot.find_joints(ARM_JOINTS, preserve_order=True)
     q_ready = torch.tensor([READY_JOINT_POS[j] for j in ARM_JOINTS], device=dev)
@@ -220,8 +223,8 @@ def report(args, group, n_groups, alive, t_fail, bounces, apexes, impacts, speed
     cat = lambda xs: torch.cat(xs).cpu().numpy() if xs else np.zeros((0, 3))  # noqa: E731
     apexes, impacts, speeds = cat(apexes), cat(impacts), cat(speeds)
     g, alive, t_fail, bounces = (x.cpu().numpy() for x in (group, alive, t_fail, bounces))
-    print(f"{'randomized' if args.randomize else 'fitted'} servos, apex target {args.apex} m, ball latency "
-          f"{args.ball_latency} ms, noise {args.ball_noise} mm, {args.seconds:.0f} s, {len(g)} worlds")
+    print(f"{'randomized' if args.randomize else 'fitted'} servos, stroke {args.stroke_joint}, apex target {args.apex} m, "
+          f"ball latency {args.ball_latency} ms, noise {args.ball_noise} mm, {args.seconds:.0f} s, {len(g)} worlds")
     print("lead ms | still bouncing | bounces p10/p50/p90 | time to failure p50 | apex mean +- std | "
           "impact offset p50/p90 | paddle speed, tilt p50")
     for i, lead in enumerate(args.lead):

@@ -285,9 +285,11 @@ def main() -> int:
                     help="pop test instead of play: a ball resting on the blade is launched straight up at SPEED "
                          "[m/s] (face level, brakes harder than g), again each time it settles: clean free flights")
     ap.add_argument("--apex", type=float, help="scripted bouncer: bounce height above the hitting plane [m] "
-                    "(default: the task's 0.25; the overhead camera sees the ball up to ~0.2 m above the paddle)")
-    ap.add_argument("--stroke-time", type=float, help="scripted bouncer: stroke time [s] (default 0.12)")
-    ap.add_argument("--follow", type=float, help="scripted bouncer: follow-through time [s] (default 0.15)")
+                    "(default: the task's 0.15; the overhead camera sees the ball up to ~0.2 m above the paddle)")
+    ap.add_argument("--stroke-time", type=float, help="scripted bouncer: stroke time [s] (default: the task's 0.10)")
+    ap.add_argument("--follow", type=float, help="scripted bouncer: follow-through time [s] (default: the task's 0.08)")
+    ap.add_argument("--stroke-joint", choices=["elbow_flex", "wrist_flex"],
+                    help="scripted bouncer: the joint that makes the stroke (default: the task's, the elbow)")
     ap.add_argument("--impact-bias", type=float, help="scripted bouncer: added to every predicted impact time [s] "
                     "(real runs: predictions 19-28 ms early -> ~0.025)")
     ap.add_argument("--ball-gravity", type=float,
@@ -298,9 +300,11 @@ def main() -> int:
     policy_dir = None if args.scripted or args.pop else Path(args.policy)
     bouncer = {k: v for k, v in (("stroke_time", args.stroke_time), ("follow", args.follow),
                                  ("impact_bias", args.impact_bias)) if v is not None}
+    if args.stroke_joint:
+        bouncer["stroke_joint"] = JOINTS.index(args.stroke_joint)
     if policy_dir and (args.apex is not None or bouncer):
-        raise SystemExit("--apex/--stroke-time/--follow/--impact-bias change the scripted bouncer the policy was "
-                         "trained on: use them with --scripted")
+        raise SystemExit("--apex/--stroke-time/--follow/--stroke-joint/--impact-bias change the scripted bouncer the "
+                         "policy was trained on: use them with --scripted")
     task_id = json.loads((policy_dir / "policy.json").read_text())["task_id"] if policy_dir else "PingPong-Bounce-Residual"
 
     if args.sim:
