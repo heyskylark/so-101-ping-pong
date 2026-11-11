@@ -32,7 +32,7 @@ from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import MjlabOnPolicyRunner, RslRlVecEnvWrapper
 from mjlab.tasks.registry import load_env_cfg, load_rl_cfg
 from pingpong_sim.robot import ARM_JOINTS
-from pingpong_sim.servo_actuator import FIT_PARAMS, encoder_vel
+from pingpong_sim.servo_actuator import FIT_PARAMS, _servo_actuator, encoder_vel
 from pingpong_sim.task.state import get
 
 # Ball-blade damping ratio bins (randomize_ball_contact) and their restitution at 1 ms contact (contact_sweep.py).
@@ -84,6 +84,18 @@ def main() -> None:
     prev_a = torch.zeros(n, A, device=device)
     obs = venv.get_observations()
     damp = env.sim.model.pair_solref[:, pid, 1].clone()
+    # Peak |motor torque| per joint within each control step (the servo model runs every physics step).
+    drive = _servo_actuator(st.robot).drive
+    peak = torch.zeros(n, len(ARM_JOINTS), device=device)
+    drive_step = drive.step
+
+    def step_and_track(goal):
+        tau = drive_step(goal)
+        torch.maximum(peak, tau.abs(), out=peak)
+        return tau
+
+    drive.step = step_and_track
+    torque = []
     with torch.inference_mode():
         for _ in range(int(args.seconds / env.step_dt)):
             a = policy(obs)
@@ -105,6 +117,8 @@ def main() -> None:
             rate.append((a - prev_a)[live].norm(dim=-1))
             clipped.append(((arm._goal <= st.kin.lo) | (arm._goal >= st.kin.hi))[live].float())
             speed.append(encoder_vel(st.robot)[live].abs())
+            torque.append(peak[live].clone())
+            peak.zero_()
             prev_a = torch.where(done[:, None], torch.zeros_like(a), a)
             if done.any():
                 idx = done.nonzero(as_tuple=True)[0]
@@ -157,6 +171,10 @@ def main() -> None:
           + ", ".join(f"{name} {100 * c[:, j].mean():.1f} %" for j, name in enumerate(ARM_JOINTS)))
     print(f"  encoder speed p99 (rad/s, fitted firmware limit {vmax:.1f}): "
           + ", ".join(f"{name} {np.percentile(v[:, j], 99):.1f}" for j, name in enumerate(ARM_JOINTS)))
+    tq = torch.cat(torque).cpu().numpy()
+    print("  peak motor torque per control step p50/p99 (N m): "
+          + ", ".join(f"{name} {np.percentile(tq[:, j], 50):.2f} / {np.percentile(tq[:, j], 99):.2f}"
+                      for j, name in enumerate(ARM_JOINTS)))
     print(f"  ball tracked {100 * torch.stack(trk).mean():.1f} % of steps; tracking error p50/p90 "
           f"{1e3 * np.percentile(e, 50):.1f} / {1e3 * np.percentile(e, 90):.1f} mm")
 
