@@ -528,6 +528,20 @@ drifting** parameters (this paddle's restitution, latency, backlash, sag), which
          triangulated 9.37 m/s², overhead size-based 8.54). Likely the red rubber's orange-ish edge joining the
          blob (cameras.py notes it). Next: paddle flipped (black hitting side, tag on the red side), recalibrate,
          `calibrate.py static --free`.
+       - Wrist stroke (`PingPong-Bounce-Residual-Wrist`, `ebd0894`): the scripted bouncer strokes with wrist_flex
+         (at ready its axis is 5 mm below the face, so the face moves straight up; 7.4 vs 24.9 g·m² swung, 0.242 vs
+         0.376 m lever, 1.1 vs 0.7° face tilt per 10 ms timing error). Scripted alone, run_bouncer 256 × 20 s with
+         cameras: elbow 23.0 % / wrist 20.3 % still bouncing (×0.89 belief 0.8 / 0.4 %, ×1.12 14.8 / 16.4 %); wrist
+         apex 173 mm vs 145 (target 150), landing 42 / 95 vs 33 / 79 mm. `residual_wrist` (1000 it × 4096, 1.6 h)
+         vs `residual_v3` at 1000 it, same env: `eval_task` 35.1 % vs 33.0–34.7 % full 20 s, apex 147 vs 143 mm,
+         landing 23 / 59 vs 21 / 55 mm; sim2sim ×1.00 / ×0.89 / ×1.12: 58.3 / 52.1 / 33.3 % vs 62.5 / 60.4 / 35.4 %
+         (48 episodes: ±10 points). Torque (servo model, `eval_task`): during strokes the elbow's peak p50 drops
+         3.34 → 2.27 N·m and the wrist's rises 1.16 → 1.94; RMS elbow 2.65 → 2.32, wrist 1.45 → 1.69, shoulder
+         lift unchanged (2.65); p99 unchanged (holding the arm up and the moves to and from the stroke dominate).
+         The policy leans on the elbow more (residual p50 1.5° vs 0.7°). In sim: as good, load shifted off the
+         elbow, not a large saving. Real check after the cure: `record_servos.py strokes --stroke-joint
+         wrist_flex --stroke-time 0.10 --follow 0.08` (does the real wrist track short strokes better than the
+         elbow's gain 0.73?), then ball tests of `policies/residual_wrist`.
 
 ## Decisions
 

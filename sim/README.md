@@ -23,6 +23,7 @@ MUJOCO_GL=egl uv run scripts/render_camera_views.py      # camera previews for d
 MUJOCO_GL=egl uv run scripts/run_bouncer.py --envs 2 --lead 0 --video            # + build/bouncer.mp4
 uv run scripts/eval_task.py --agent zero        # RL env with the scripted bouncer alone (residual task baseline)
 uv run scripts/train.py PingPong-Bounce-Residual --env.scene.num-envs 4096       # PPO -> logs/rsl_rl/pingpong_residual/
+uv run scripts/train.py PingPong-Bounce-Residual-Wrist --env.scene.num-envs 4096 # same, scripted stroke with the wrist -> pingpong_residual_wrist/
 uv run scripts/eval_task.py --checkpoint logs/rsl_rl/pingpong_residual/<run>/model_<n>.pt   # + bounce quality, residual size, timing
 uv run scripts/play.py PingPong-Bounce-Residual --checkpoint-file <model.pt>     # interactive viewer
 uv run scripts/export_policy.py logs/rsl_rl/pingpong_residual/<run>/model_<n>.pt --name <name>  # -> policies/<name>/ (ONNX + spec)

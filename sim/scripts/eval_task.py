@@ -84,18 +84,23 @@ def main() -> None:
     prev_a = torch.zeros(n, A, device=device)
     obs = venv.get_observations()
     damp = env.sim.model.pair_solref[:, pid, 1].clone()
-    # Peak |motor torque| per joint within each control step (the servo model runs every physics step).
+    # Motor torque per joint within each control step (the servo model runs every physics step): peak |tau| and
+    # sum of tau^2 over the physics steps.
     drive = _servo_actuator(st.robot).drive
     peak = torch.zeros(n, len(ARM_JOINTS), device=device)
+    sq = torch.zeros_like(peak)
+    substeps = [0]
     drive_step = drive.step
 
     def step_and_track(goal):
         tau = drive_step(goal)
         torch.maximum(peak, tau.abs(), out=peak)
+        sq.add_(tau * tau)
+        substeps[0] += 1
         return tau
 
     drive.step = step_and_track
-    torque = []
+    torque, torque_sq, torque_stroke = [], [], []
     with torch.inference_mode():
         for _ in range(int(args.seconds / env.step_dt)):
             a = policy(obs)
@@ -118,7 +123,14 @@ def main() -> None:
             clipped.append(((arm._goal <= st.kin.lo) | (arm._goal >= st.kin.hi))[live].float())
             speed.append(encoder_vel(st.robot)[live].abs())
             torque.append(peak[live].clone())
+            torque_sq.append(sq[live] / max(substeps[0], 1))
+            if st.cfg.use_bouncer:  # within a stroke: from its start to the planned impact
+                b = st.ctrl.bouncer
+                stroking = live & (st.now >= t_plan - b.Ts) & (st.now < t_plan)
+                torque_stroke.append(peak[stroking].clone())
             peak.zero_()
+            sq.zero_()
+            substeps[0] = 0
             prev_a = torch.where(done[:, None], torch.zeros_like(a), a)
             if done.any():
                 idx = done.nonzero(as_tuple=True)[0]
@@ -175,6 +187,13 @@ def main() -> None:
     print("  peak motor torque per control step p50/p99 (N m): "
           + ", ".join(f"{name} {np.percentile(tq[:, j], 50):.2f} / {np.percentile(tq[:, j], 99):.2f}"
                       for j, name in enumerate(ARM_JOINTS)))
+    rms = np.sqrt(torch.cat(torque_sq).cpu().numpy().mean(0))
+    print("  RMS motor torque (N m): " + ", ".join(f"{name} {rms[j]:.2f}" for j, name in enumerate(ARM_JOINTS)))
+    if torque_stroke:
+        ts = torch.cat(torque_stroke).cpu().numpy()
+        print(f"  peak motor torque during strokes p50/p99 (N m, {len(ts)} control steps): "
+              + ", ".join(f"{name} {np.percentile(ts[:, j], 50):.2f} / {np.percentile(ts[:, j], 99):.2f}"
+                          for j, name in enumerate(ARM_JOINTS)))
     print(f"  ball tracked {100 * torch.stack(trk).mean():.1f} % of steps; tracking error p50/p90 "
           f"{1e3 * np.percentile(e, 50):.1f} / {1e3 * np.percentile(e, 90):.1f} mm")
 
