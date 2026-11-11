@@ -21,6 +21,7 @@ sim/build/
 sim/logs/
 sim/outputs/
 sim/wandb/
+MUJOCO_LOG.TXT
 
 # Large or third-party local files
 ping-pong-drop-vids/
