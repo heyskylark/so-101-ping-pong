@@ -1171,7 +1171,7 @@ drifting** parameters (this paddle's restitution, latency, backlash, sag), which
              - At the last stage's weights the per-step reward of steady play is about zero (mean episode reward
                −6 with the −5 for the end): the speed cost should not go higher.
          - Next: rig run of `solo_v1` with a 240 fps video. Both trainings continue: solo seed 42 for 3000 more
-           iterations from 08:55 (`build/analysis/train_solo_v2.log`), lead to iteration 5498 (~09:45,
+           iterations from 08:42 (`build/analysis/train_solo_v2.log`), lead to iteration 5498 (~10:20,
            `train_gentle_lead_v3.log`). A fix that keeps the holder tight. Open: the bounce memory on the solo
            policy (`warm_start.py`); the restitution's fall with speed; hitting the first bounce.
 
