@@ -1140,10 +1140,24 @@ drifting** parameters (this paddle's restitution, latency, backlash, sag), which
              3600 iterations each from 01:38 (`logs/rsl_rl/pingpong_solo/2026-11-14_01-38-30` seed 42 and
              `_01-38-50` seed 7; `build/analysis/train_solo_v1_a.log`, `_b.log`). First 120 iterations, both
              seeds alike: bounces per episode 0.08 → 1.5, episode length 30 → 130 steps, action std 0.30 → 0.14.
-         - Next: evaluate the lead continuation (~04:40) and the solo runs (~08:30) in sim, with
-           `build/analysis/smoothness.py` for how much the joints move; rig runs with a 240
-           fps video. A fix that keeps the holder tight. Open: a shorter commitment (stroke time, lock) for the
-           bouncer tasks; the restitution's fall with speed; hitting the first bounce.
+           - **`gentle_lead_v2`** (lead task continued to iteration 3498, 01:21–06:10): the training curve kept
+             rising, 10.3 → 13.7 bounces per episode over the 2000 iterations (std 0.08–0.10). `sim2sim.py`,
+             96 episodes, mean bounces per episode / full 20 s: lead world 28.8 / 51 % (`gentle_lead_v1` 23.7 /
+             41 %), rough world 18.4 / 21 % (15.5 / 17 %; `gentle_rough_v1` 18.7 / 24 %). Continued again from
+             06:25 for 2000 more (`build/analysis/train_gentle_lead_v3.log`).
+           - **Solo at iteration 2300** (before the last smoothness stage), both seeds: training 16.2 and 15.5
+             bounces per episode and rising (the rough run ended at 9.2 in the same kind of world).
+             `sim2sim.py`, 96 episodes in its own world (a new restitution per bounce, drops at ±4 cm): 21.8 /
+             29 % and 21.9 / 30 %: the best of any policy in a rough world. How it moves, one 60 s sim run at the
+             rig-like arm (`build/analysis/smoothness.py`; RMS speed in deg/s, seed 42 / seed 7 /
+             `gentle_rough_v1`): pan 19 / 9 / 31, lift 18 / 30 / 14, elbow 24 / 27 / 8, wrist flex 47 / 61 /
+             67, roll 24 / 27 / 29; lift range −2..+8.7°, elbow −4..+4.5°, wrist −15..+11°: less pan and wrist,
+             two to three times the lift and elbow of the scripted stroke's policies. At the first stage change
+             (iteration 1200, speed cost x5) the joints' speed did not come down (the cost rose x5).
+         - Next: the solo runs' end (~08:10): export, `sim2sim.py`, lean runs, `smoothness.py` against iteration
+           2300; rig runs with a 240 fps video. A fix that keeps the holder tight. Open: a shorter commitment
+           (stroke time, lock) for the bouncer tasks; the restitution's fall with speed; hitting the first
+           bounce; the bounce memory on the solo policy (`warm_start.py`).
 
 ## Decisions
 
