@@ -1235,6 +1235,15 @@ drifting** parameters (this paddle's restitution, latency, backlash, sag), which
                in the first 100 ms, 1.7° after 150 ms). The range from such fits is useless (5–60 cm), so no size
                law from them.
            - `run_robot.py --watch`: the arm holds ready and only tracks (drops on a still blade).
+           - **Where a second, fixed camera would help** (`build/analysis/second_camera_scan.py`: `solo_v1`, wrist
+             camera with pixel noise 12 px, size noise 4 px, floor 0.04; 32 episodes per place; blade centre at
+             ready (0.28, 0, 0.33) m). Estimate error 60 ms before contact, fore-aft / height RMS in cm: wrist
+             alone 1.4 / 1.7; plus the overhead as it is (0.56, 0.03, 0.53, 22° from straight down) 1.4 / 1.7;
+             0.7 m straight above the blade 0.5 / 1.4; level from the side at 0.6 m 0.5 / 0.6; from the side 30°
+             up 0.5 / 0.9; level from the front-side at 45° 0.9 / 0.7; level from the front 8.3 / 1.5. Bounces
+             per episode 19–31 in all (wrist alone 31.0), within this sample's noise: this sim does not have the
+             rig's drift, so it cannot show what the camera would be worth there. The fixed camera's calibration
+             in `calibrate.py` assumes the view from above (and the arm's zero calibration uses that view).
          - Next: `--watch` run with the side video: drops onto the still blade. If the estimate's forward drift
            and the 2° bearing scatter are there with a camera that does not move, it is the camera's calibration
            (mount, lens, size); if not, the moving arm. `solo_wobble` training due ~14:30. Lead to iteration 5498
