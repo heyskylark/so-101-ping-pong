@@ -26,3 +26,11 @@ MUJOCO_LOG.TXT
 # Large or third-party local files
 ping-pong-drop-vids/
 research/*.pdf
+
+# Rig data and exported policies stay local (what was committed before 2026-11-10 stays tracked; the calibration
+# results the code loads, measurements/calibration/*.json and the ignore masks, are tracked)
+measurements/runs/
+measurements/servo/
+measurements/video/
+measurements/calibration/raw/
+sim/policies/
