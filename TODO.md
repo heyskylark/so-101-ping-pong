@@ -1244,6 +1244,13 @@ drifting** parameters (this paddle's restitution, latency, backlash, sag), which
              per episode 19–31 in all (wrist alone 31.0), within this sample's noise: this sim does not have the
              rig's drift, so it cannot show what the camera would be worth there. The fixed camera's calibration
              in `calibrate.py` assumes the view from above (and the arm's zero calibration uses that view).
+             - Three cameras (`third_camera_scan.py`, same setup, other seeds; fore-aft / sideways / height RMS in
+               cm, 60 ms before contact): wrist alone 1.4 / 1.4 / 1.7; wrist + side 1.0 / 1.3 / 1.1 (0.5 / – / 0.6
+               in the run above: these numbers move by half between 32-episode samples); wrist + side + above
+               0.4 / 0.4 / 0.8; wrist + side + front 0.5 / 0.5 / 0.6; side + above without the wrist camera 0.4 /
+               0.4 / 0.6; side + front without it 0.5 / 0.5 / 0.4; side alone 0.5 / 1.8 / 0.7. With two fixed
+               cameras at right angles the wrist camera adds nothing. Solo-Wobble training at iteration 1250: ~20
+               bounces per episode (as the clean-camera solo): white noise of the rig's size can be trained into.
          - Next: `--watch` run with the side video: drops onto the still blade. If the estimate's forward drift
            and the 2° bearing scatter are there with a camera that does not move, it is the camera's calibration
            (mount, lens, size); if not, the moving arm. `solo_wobble` training due ~14:30. Lead to iteration 5498
