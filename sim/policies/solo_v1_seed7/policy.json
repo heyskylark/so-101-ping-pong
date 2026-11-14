@@ -1,0 +1,156 @@
+{
+  "task_id": "PingPong-Bounce-Solo",
+  "checkpoint": "logs/rsl_rl/pingpong_solo/2026-11-14_01-38-50/model_3599.pt",
+  "control_dt": 0.01,
+  "joints": [
+    "shoulder_pan",
+    "shoulder_lift",
+    "elbow_flex",
+    "wrist_flex",
+    "wrist_roll"
+  ],
+  "firmware_p": [
+    16,
+    32,
+    32,
+    32,
+    64
+  ],
+  "q_ready": [
+    -0.0006000000284984708,
+    -1.1826000213623047,
+    0.1331000030040741,
+    1.0496000051498413,
+    0.048700001090765
+  ],
+  "joint_lower": [
+    -1.9198600053787231,
+    -1.7453292608261108,
+    -1.690000057220459,
+    -1.6580630540847778,
+    -2.743847370147705
+  ],
+  "joint_upper": [
+    1.9198600053787231,
+    1.7453292608261108,
+    1.690000057220459,
+    1.6580630540847778,
+    2.8412063121795654
+  ],
+  "action": {
+    "dim": 5,
+    "scale": [
+      0.15,
+      0.07,
+      0.09,
+      0.2,
+      0.1
+    ],
+    "clip": 3.0,
+    "residual": false,
+    "max_rate": [
+      6.981317007977318,
+      3.490658503988659,
+      5.235987755982989,
+      15.009831567151235,
+      10.471975511965978
+    ],
+    "goal": "clip(q_ready + scale * clip(action, -clip, clip), joint_lower, joint_upper); then at most max_rate x control_dt from the last goal (from the encoders after a reset)"
+  },
+  "observation": {
+    "dim": 241,
+    "layout": "terms concatenated in this order; a term with history h contributes h frames, oldest first; after a reset every frame equals the first value",
+    "terms": [
+      {
+        "name": "joint_pos",
+        "dim": 5,
+        "history": 3,
+        "doc": "Encoder angles relative to the ready pose (5)."
+      },
+      {
+        "name": "joint_vel",
+        "dim": 5,
+        "history": 3,
+        "doc": "Encoder velocities (5)."
+      },
+      {
+        "name": "paddle",
+        "dim": 9,
+        "history": 1,
+        "doc": "Blade face centre relative to its target, face normal, face velocity, from the encoders (9)."
+      },
+      {
+        "name": "ball",
+        "dim": 10,
+        "history": 1,
+        "doc": "Ball filter estimate: position relative to the impact target, velocity, position / velocity std, time since the last detection (capped at 0.5 s), tracked flag (10)."
+      },
+      {
+        "name": "impact",
+        "dim": 7,
+        "history": 1,
+        "doc": "Predicted crossing of the hitting plane on a converged track: time to it (capped at 1.2 s), position relative to the target, incoming velocity, valid flag (7)."
+      },
+      {
+        "name": "actions",
+        "dim": 5,
+        "history": 5,
+        "doc": "policy output of the previous steps (raw, unscaled)"
+      },
+      {
+        "name": "history",
+        "dim": 160,
+        "history": 1,
+        "doc": "0.64 s of frames (one per 40 ms): ball estimate and velocity, tracked flag, blade face height and vertical speed, predicted time to the hitting plane (160)."
+      }
+    ]
+  },
+  "task": {
+    "target_xy": [
+      0.28,
+      0.0
+    ],
+    "hit_z": 0.31,
+    "apex": 0.15,
+    "trust_vel_std": 0.5,
+    "use_bouncer": false
+  },
+  "bouncer": {
+    "target_xy": [
+      0.28,
+      0.0
+    ],
+    "hit_z": 0.31,
+    "apex": 0.15,
+    "restitution": 0.62,
+    "steer_gain": 0.7,
+    "reach": 0.02,
+    "max_tilt_deg": 20.0,
+    "stroke_time": 0.1,
+    "stroke_joint": 3,
+    "lock": 0.03,
+    "impact_bias": 0.0,
+    "follow": 0.08,
+    "min_approach": 0.04,
+    "predict_dt": 0.02,
+    "predict_horizon": 1.2,
+    "feedforward": true,
+    "wrist_only": true,
+    "reach_x": 0.0,
+    "trim_gain": 0.0,
+    "trim_max_deg": 5.0
+  },
+  "controller": {
+    "history_len": 16,
+    "history_stride": 4,
+    "memory_slots": 6,
+    "memory_delay": 0.16
+  },
+  "filter": {
+    "restitution": 0.62
+  },
+  "onnx_check": {
+    "samples": 4800,
+    "max_abs_diff": 2.1457672119140625e-06
+  }
+}

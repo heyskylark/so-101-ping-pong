@@ -1154,10 +1154,26 @@ drifting** parameters (this paddle's restitution, latency, backlash, sag), which
              67, roll 24 / 27 / 29; lift range −2..+8.7°, elbow −4..+4.5°, wrist −15..+11°: less pan and wrist,
              two to three times the lift and elbow of the scripted stroke's policies. At the first stage change
              (iteration 1200, speed cost x5) the joints' speed did not come down (the cost rose x5).
-         - Next: the solo runs' end (~08:10): export, `sim2sim.py`, lean runs, `smoothness.py` against iteration
-           2300; rig runs with a 240 fps video. A fix that keeps the holder tight. Open: a shorter commitment
-           (stroke time, lock) for the bouncer tasks; the restitution's fall with speed; hitting the first
-           bounce; the bounce memory on the solo policy (`warm_start.py`).
+           - **`solo_v1`** (seed 42) and **`solo_v1_seed7`** (3600 iterations from scratch, 01:38–08:40). Training
+             ended at 19.1 and 18.9 bounces per episode, both still rising. `sim2sim.py`, 96 episodes in the solo
+             world (a new restitution per bounce, drops at ±4 cm): bounces p10/p50/p90 1/47/55, mean 32.1, 46 %
+             full 20 s; and 1/32/56, 28.6, 45 % (best scripted-stroke policies in a rough world: median 4–5,
+             mean 18.4–18.7, 21–24 %). Ends: ball off the blade or away as before, the ball touching the arm
+             4–7 % (0–2 % before). Rig-like arm, 60 s runs, bounces per drop (seed 42 / seed 7): no error 5.9 /
+             54; wrist zero +2° 56 / 17.5, −2° 27 / 5.9; roll +2° 3.2 / 24.5, −2° 19 / 6.6; no unsafe goal in
+             any run.
+             - How it moves at the end (`smoothness.py`, one 60 s run each, RMS speed in deg/s, seed 42 / seed 7
+               / `gentle_rough_v1`): pan 18 / 16 / 31, lift 15 / 16 / 14, elbow 18 / 21 / 8, wrist flex 43 / 41
+               / 67, roll 17 / 17 / 29. The last stage brought lift, elbow, wrist and roll down from iteration
+               2300 (lift 18–30 → 15–16, wrist 47–61 → 41–43); the elbow still moves twice as fast as under the
+               scripted stroke, everything else as fast or slower. Ranges: lift −2.4..+6.4°, elbow −4.9..+3.4°,
+               wrist −13.8..+10.1°.
+             - At the last stage's weights the per-step reward of steady play is about zero (mean episode reward
+               −6 with the −5 for the end): the speed cost should not go higher.
+         - Next: rig run of `solo_v1` with a 240 fps video. Both trainings continue: solo seed 42 for 3000 more
+           iterations from 08:55 (`build/analysis/train_solo_v2.log`), lead to iteration 5498 (~09:45,
+           `train_gentle_lead_v3.log`). A fix that keeps the holder tight. Open: the bounce memory on the solo
+           policy (`warm_start.py`); the restitution's fall with speed; hitting the first bounce.
 
 ## Decisions
 
