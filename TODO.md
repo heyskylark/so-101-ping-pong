@@ -1137,8 +1137,11 @@ drifting** parameters (this paddle's restitution, latency, backlash, sag), which
              1200, 2400: −0.0005/−0.002/−0.005 and −0.0002/−0.001/−0.003; charged in full from the start a
              policy that can't juggle yet would learn to hold still). No bounce memory: from scratch the
              normalizer blows its first records up; `warm_start.py` can add it later. Two seeds from scratch,
-             3600 iterations each from ~02:35 (`build/analysis/train_solo_v1_a.log`, `_b.log`).
-         - Next: evaluate the lead continuation (~04:10) and the solo runs (~09:30) in sim; rig runs with a 240
+             3600 iterations each from 01:38 (`logs/rsl_rl/pingpong_solo/2026-11-14_01-38-30` seed 42 and
+             `_01-38-50` seed 7; `build/analysis/train_solo_v1_a.log`, `_b.log`). First 120 iterations, both
+             seeds alike: bounces per episode 0.08 → 1.5, episode length 30 → 130 steps, action std 0.30 → 0.14.
+         - Next: evaluate the lead continuation (~04:40) and the solo runs (~08:30) in sim, with
+           `build/analysis/smoothness.py` for how much the joints move; rig runs with a 240
            fps video. A fix that keeps the holder tight. Open: a shorter commitment (stroke time, lock) for the
            bouncer tasks; the restitution's fall with speed; hitting the first bounce.
 
