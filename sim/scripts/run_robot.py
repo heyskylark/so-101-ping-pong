@@ -132,7 +132,8 @@ class Run:
     def __init__(self, session: ArmSession, cameras, calibs: dict[str, CameraCalib], task_id: str,
                  policy_dir: Path | None, kin: ArmKinematics, apex: float | None = None, pop: float | None = None,
                  bouncer: dict | None = None, restitution: float | None = None,
-                 goal_rate: list[float] | None = None, paddle_lag: float = 0.0, witness: tuple[str, ...] = ()):
+                 goal_rate: list[float] | None = None, paddle_lag: float = 0.0, witness: tuple[str, ...] = (),
+                 watch: bool = False):
         if goal_rate and len(goal_rate) not in (1, 5):
             raise SystemExit("--goal-rate: one value, or one per joint")
         self.max_step = np.radians(goal_rate) / RATE * np.ones(5) if goal_rate else np.full(5, MAX_STEP)  # rad per tick
@@ -157,6 +158,7 @@ class Run:
         self.ctrl = BounceController(ccfg, kin, self.q_ready, 1, 1.0 / RATE, "cpu")
         self.policy = OnnxPolicy(policy_dir, self.ctrl) if policy_dir else None
         self.pop = pop_goals(kin, self.q_ready.numpy(), pop)[0] if pop else None  # pop test: never plays
+        self.watch = watch  # hold still and track only
         self.pops = 0
         self.ids = torch.zeros(1, dtype=torch.long)
         self.log: dict[str, list] = {k: [] for k in ("t", "q", "dq", "goal", "base", "est_p", "est_v", "tracked",
@@ -247,7 +249,7 @@ class Run:
                         pop_shift = goal - self.pop[0]  # the pop's goals start from the trimmed hold, not a jump
                         self.pops += 1
                         print(f"  {now:6.1f} s: pop {self.pops}")
-                elif above and float(ctrl.age[0]) < 0.1 and not self.held(now):
+                elif not self.watch and above and float(ctrl.age[0]) < 0.1 and not self.held(now):
                     state, state_since = "PLAY", now
                     self.episodes += 1
                     if self.policy:
@@ -350,6 +352,9 @@ def main() -> int:
     pol = ap.add_mutually_exclusive_group()
     pol.add_argument("--policy", help="exported policy directory (trained at the current ready pose)")
     pol.add_argument("--scripted", action="store_true", help="the scripted bouncer alone")
+    pol.add_argument("--watch", action="store_true",
+                     help="the arm holds the ready pose and never plays; the ball is tracked and logged as in play. "
+                          "Drops onto a still blade: what the tracking does with a camera that does not move")
     ap.add_argument("--task", help="scripted bouncer: the task whose bouncer settings and cameras to use (default "
                     "PingPong-Bounce-Gentle: pan and wrist only, wrist camera only; PingPong-Bounce-Residual: the "
                     "full-arm bouncer with both cameras, which wore out two servos on the rig)")
@@ -407,9 +412,9 @@ def main() -> int:
                          "came 30-50 ms late); lift and elbow only hold, so a low limit there costs nothing")
     args = ap.parse_args()
     torch.set_num_threads(1)
-    if not (args.policy or args.scripted or args.pop):
-        raise SystemExit("--policy DIR, --scripted or --pop")
-    policy_dir = None if args.scripted or args.pop else Path(args.policy)
+    if not (args.policy or args.scripted or args.pop or args.watch):
+        raise SystemExit("--policy DIR, --scripted, --pop or --watch")
+    policy_dir = None if args.scripted or args.pop or args.watch else Path(args.policy)
     bouncer = {k: v for k, v in (("stroke_time", args.stroke_time), ("follow", args.follow),
                                  ("impact_bias", args.impact_bias)) if v is not None}
     if args.stroke_joint:
@@ -539,7 +544,7 @@ def main() -> int:
                 print(f"paddle and wrist camera taken {1e3 * arm.paddle_lag:.0f} ms behind the encoders (arm.json)")
         run = Run(session, cams, calibs, task_id, policy_dir, kin, apex=args.apex, pop=args.pop, bouncer=bouncer,
                   restitution=args.restitution, goal_rate=args.goal_rate, paddle_lag=paddle_lag,
-                  witness=tuple(args.witness))
+                  witness=tuple(args.witness), watch=args.watch)
         if run.pop is not None:
             b = PlanBuilder(np.array([READY_JOINT_POS[j] for j in JOINTS]))
             b.add(run.pop, name="pop")
@@ -558,9 +563,10 @@ def main() -> int:
             elif args.sim:
                 world.launch()  # the "person" drops the first ball once the arm is ready
             what = (f"the pop test ({args.pop:.2f} m/s)" if args.pop else 'the scripted bouncer' if args.scripted
-                    else policy_dir)
+                    else "nothing: the arm holds still and the ball is only tracked" if args.watch else policy_dir)
             print(f"at ready; running {what} for {args.seconds:.0f} s. " + (
                 "Set the ball down on the paddle centre; it is launched each time it settles." if args.pop else
+                "Drop the ball on the paddle and let it bounce out." if args.watch else
                 "Hold a ball still above the paddle, or drop it there."))
             with torch.inference_mode():  # less dispatch per tensor op
                 run.run(args.seconds)

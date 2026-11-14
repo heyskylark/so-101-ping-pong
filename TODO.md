@@ -1207,11 +1207,39 @@ drifting** parameters (this paddle's restitution, latency, backlash, sag), which
              since 3600); warm start from its `model_5000.pt`, action std 0.1, 3000 iterations from 10:55, due
              ~14:30 (`logs/rsl_rl/pingpong_solo_wobble/2026-11-14_10-55-20`,
              `build/analysis/train_solo_wobble_v1.log`).
-         - Next: rig run of `solo_v1` with `--camera-noise angle_floor=0.04` (same policy, filter told) against
-           the 2.9 baseline. Find the cause of the bearing error (static test: ball on a string above a still arm;
-           then with the wrist stroking). Lead to iteration 5498 finished ~10:20, not exported. A fix that keeps
-           the holder tight. Open: the bounce memory on the solo policy (`warm_start.py`); the restitution's fall
-           with speed; hitting the first bounce.
+           - **Rig, `solo_v1` with `--camera-noise angle_floor=0.04`, 11:09** (`_110924`, no video): 2.8 bounces
+             per drop (2.9 before; 14 and 13 drops with a bounce: no difference to be seen), best 10 (any policy's
+             best so far; before 7), drops with 4 or more 3 (6). In-play detections rejected 0–16 % (28–47 %).
+             The 10-bounce rally: apexes 10–20 cm, 0.29–0.38 s apart, on the blade within ±5 cm until the last
+             (+7 cm fwd).
+             - How drops end (`build/analysis/rally_table.py`, `blind_jumps.py`, `edge_stats.py`, frames): the
+               ball is only ever in the right half of the wrist picture (rising = moving right) and above ~20 cm
+               it leaves it; 12–13 of 25 flights between counted bounces have more than 70 ms without a
+               detection (sim, same policy: 62 of 140). When the ball comes back the estimate jumps, on the rig
+               backwards: after 200 ms or more a median 6 cm (fwd mean −6.0 cm), 13 of 14 jumps over 3 cm in the
+               two solo runs backwards; sim 2 cm, no direction (fwd mean +0.7..+2.2 cm). Two ends looked at frame
+               by frame (16.98 s, 19.32 s): the ball comes down by the handle, 11–13 cm behind the estimate.
+             - Against the 10:29 side video (`video_vs_est.py`; the video's horizontal axis read as fore-aft,
+               which per-flight agreement at 40 ms supports but nothing else checks): the estimate's forward speed
+               minus the video's is +0.01 m/s (median) 40 ms after a bounce, +0.03 at 80 ms, +0.11 at 120 ms
+               (p10..p90 −0.07..+0.31, 28 flights). Unchanged by the angle floor or a lagged camera pose.
+             - Ruled out or small, replayed on the 10:29 run against the video (24 bounces, `replay_noise.py`):
+               dropping blobs cut by the picture's edge (11–12 % of in-play detections; the detector passes
+               them): no gain. One timestamp offset: no (the ball is seen above the expected place rising and
+               falling: +0.7..+3.3° and +2.7..+8.0°). Camera pose taken 14 ms late (the measured `paddle_lag`):
+               median |timing error| 17 / 17 / 8 ms at 100 / 60 / 30 ms (23 / 20 / 19), 10 ms early worse; with
+               the angle floor at 0.04 no further gain. Lens fit: 30 views, 0.63 px RMS, corners in all of the
+               right half (none in the left).
+             - Bearings alone against a free-flight arc (`arc_fit.py`, 96 flights of six runs, 6 parameters per
+               flight): RMS residual per flight median 1.6° (0.7..3.8°), growing through the flight (median 1.0°
+               in the first 100 ms, 1.7° after 150 ms). The range from such fits is useless (5–60 cm), so no size
+               law from them.
+           - `run_robot.py --watch`: the arm holds ready and only tracks (drops on a still blade).
+         - Next: `--watch` run with the side video: drops onto the still blade. If the estimate's forward drift
+           and the 2° bearing scatter are there with a camera that does not move, it is the camera's calibration
+           (mount, lens, size); if not, the moving arm. `solo_wobble` training due ~14:30. Lead to iteration 5498
+           finished ~10:20, not exported. A fix that keeps the holder tight. Open: the bounce memory on the solo
+           policy (`warm_start.py`); the restitution's fall with speed; hitting the first bounce.
 
 ## Decisions
 
