@@ -133,6 +133,12 @@ class ArmCalib:
     joint_offsets: list = field(default_factory=lambda: [0.0] * 5)  # rad, true = mapped encoder angle + offset
     tag_R: list | None = None  # paddle-link-from-tag rotation
     tag_p: list | None = None
+    # How far the hitting face's normal really leans from the model's, (forward, +y) [rad] with the arm at ready:
+    # by ruler at the ready hold (calibrate.py face).
+    face_tilt: list = field(default_factory=lambda: [0.0, 0.0])
+    # s: the paddle and the wrist camera follow the encoders this late in fast strokes (replaying runs: the lag at
+    # which the ball estimate after a struck bounce stops running ahead of the ball).
+    paddle_lag: float = 0.0
     steps: dict = field(default_factory=dict)
 
     @staticmethod
@@ -149,6 +155,27 @@ class ArmCalib:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(asdict(self), indent=2) + "\n")
         return p
+
+
+def apply_face_tilt(kin: ArmKinematics, arm: ArmCalib, q_ready: torch.Tensor) -> None:
+    """Tilt the kinematics' hitting face by the measured `arm.face_tilt`, so that planned face normals are the
+    real face's. The lean is given in world axes with the arm at `q_ready` and fixed to the paddle link."""
+    if not any(arm.face_tilt):
+        return
+    R, _ = kin.link(q_ready[None])
+    R = R[0].double().numpy()
+    S = kin.site_R.double().cpu().numpy()
+    n0 = R @ S[:, 2]  # the model's face normal at ready, world
+    n1 = n0 + np.array([arm.face_tilt[0], arm.face_tilt[1], 0.0])
+    n1 /= np.linalg.norm(n1)
+    axis = np.cross(n0, n1)
+    s, c = np.linalg.norm(axis), float(n0 @ n1)
+    if s < 1e-12:
+        return
+    k = axis / s
+    K = np.array([[0, -k[2], k[1]], [k[2], 0, -k[0]], [-k[1], k[0], 0]])
+    rot_w = np.eye(3) + s * K + (1 - c) * (K @ K)  # world rotation taking n0 to n1
+    kin.site_R = torch.tensor(R.T @ rot_w @ R @ S, dtype=kin.site_R.dtype, device=kin.site_R.device)
 
 
 def apply_wrist_mount(kin: ArmKinematics, calib: CameraCalib) -> None:

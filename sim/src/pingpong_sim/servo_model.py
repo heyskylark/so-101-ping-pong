@@ -17,6 +17,14 @@ Additions for this arm:
   controller sees q_enc = q_servo + q_gear, the angle that is logged. Fitted to the 2026-11-08 recording: the
   holding joints are pushed 2-3x further by a neighbour's step than with rigid gears, and free play (backlash)
   fitted to zero, so compliance replaced it.
+- **Gear play.** Optionally (`set_play`), free travel in a joint's gears: a dead zone of the gear joint's spring
+  (its torque inside +-play/2 is cancelled with an applied one), read in full by the output encoder. On the rig
+  (2026-11-12, replacement shoulder servo) the lift jumps ~1.5 deg between two positions whenever a wrist stroke's
+  reaction reverses, at any firmware gain: the ready pose puts little gravity load on it to keep the gears closed.
+- **Link flex.** Optionally (`set_link_stiffness`), the structure after an encoder bends too (printed links, horn
+  screws, the paddle holder): a second spring in series on the same axis. It has no inertia between it and the gear
+  spring, so the gear joint carries both (series stiffness) and the encoder reads only the gear's share of the
+  deflection: the blade droops and rings by more than the encoders report.
 - **Per-world parameters.** Every parameter is a (num_envs, 1) or (num_envs, num_joints) tensor, so a batch of
   worlds can run a batch of candidate parameter sets (system identification) or randomized servos (training).
 - **Feedback delay.** The firmware acts on the encoder angle `feedback_delay` ago (sensor/loop/PWM latency inside
@@ -187,40 +195,94 @@ class ServoModel:
         self.vin = torch.full((self.n, 1), 12.0, device=dev)
         # Encoder history for the feedback delay (ring buffer, newest at self.ptr).
         self.hist = torch.zeros(FEEDBACK_HISTORY, self.n, self.J, device=dev)
+        # Structure flex after the encoder (set_link_stiffness): rigid by default, as the model was fitted.
+        self.link_stiffness = torch.full((self.n, self.J), math.inf, device=dev)
+        self.link_damping = torch.zeros(self.n, self.J, device=dev)
+        self.seen = torch.ones(self.n, self.J, device=dev)  # share of the gear joint's deflection the encoder reads
+        # Free play in the gears (set_play): none by default.
+        self.play = torch.zeros(self.n, self.J, device=dev)
+        self.k_series = torch.zeros(self.n, self.J, device=dev)  # the gear joint's spring (gear and link in series)
+        self.has_play = False
+        self.zero_error = torch.zeros(self.n, self.J, device=dev)  # set_zero_error
         self.ptr = 0
         self.rows = torch.arange(self.n, device=dev)
 
     def set_params(self, values: dict, env_ids: torch.Tensor | slice = slice(None)) -> None:
         """Parameter values for the worlds `env_ids`: shared params (n,) or (n, 1), per-joint (n, J); numpy or torch.
-        Writes armature and the gear joints (gear_stiffness = RIGID locks a gear joint)."""
+        Writes armature and the gear joints (gear_stiffness = RIGID and a rigid link lock a gear joint)."""
         for p in PARAMS:
             v = torch.as_tensor(values[p.name], dtype=torch.float32, device=self.device)
             self.p[p.name][env_ids] = v.reshape(-1, self.J if p.per_joint else 1)
         rows = env_ids[:, None] if isinstance(env_ids, torch.Tensor) else env_ids
         m = self.model
         m.dof_armature[rows, self.servo_v] = self.p["armature"][env_ids].expand(-1, self.J)
-        k = self.p["gear_stiffness"][env_ids]
-        rigid = torch.isinf(k)
-        half = torch.where(rigid, torch.full_like(k, 1e-6), torch.full_like(k, GEAR_RANGE))
+        self._write_gears(env_ids)
+
+    def set_link_stiffness(self, k_link: torch.Tensor, damping: torch.Tensor | float = 0.0,
+                           env_ids: torch.Tensor | slice = slice(None)) -> None:
+        """Stiffness [N m/rad] of the structure after each encoder, (n, J); inf = rigid (the default). `damping`
+        [N m s/rad], (n, J): the structure's own, added to the gear joint's (which the servo loop no longer
+        damps much once the encoder sees only part of the deflection)."""
+        self.link_stiffness[env_ids] = torch.as_tensor(k_link, dtype=torch.float32, device=self.device)
+        self.link_damping[env_ids] = torch.as_tensor(damping, dtype=torch.float32, device=self.device)
+        self._write_gears(env_ids)
+
+    def _write_gears(self, env_ids: torch.Tensor | slice) -> None:
+        """The gear joint carries the gear and the link compliance in series; the encoder sees the gear's share."""
+        rows = env_ids[:, None] if isinstance(env_ids, torch.Tensor) else env_ids
+        m = self.model
+        k_gear = self.p["gear_stiffness"][env_ids]
+        c_gear = torch.where(k_gear > 0, 1.0 / k_gear, torch.zeros_like(k_gear))  # inf (rigid) or not yet set: 0
+        c_link = 1.0 / self.link_stiffness[env_ids]
+        c = c_gear + c_link
+        rigid = c <= 0
+        self.seen[env_ids] = torch.where(rigid, torch.ones_like(c), c_gear / c.clamp_min(1e-12))
+        half = torch.where(rigid, torch.full_like(c, 1e-6), torch.full_like(c, GEAR_RANGE))
         m.jnt_range[rows, self.gear_jnt, 0] = -half
         m.jnt_range[rows, self.gear_jnt, 1] = half
-        m.jnt_stiffness[rows, self.gear_jnt] = torch.where(rigid, torch.zeros_like(k), k)
-        m.dof_damping[rows, self.gear_v] = self.p["gear_damping"][env_ids].expand(-1, self.J)
+        self.k_series[env_ids] = torch.where(rigid, torch.zeros_like(c), 1.0 / c.clamp_min(1e-12))
+        m.jnt_stiffness[rows, self.gear_jnt] = self.k_series[env_ids]
+        m.dof_damping[rows, self.gear_v] = self.p["gear_damping"][env_ids].expand(-1, self.J) + self.link_damping[env_ids]
+
+    def set_play(self, play: torch.Tensor, env_ids: torch.Tensor | slice = slice(None)) -> None:
+        """Free play [rad, total travel] in each joint's gears, (n, J); 0 = none (the default, as the model was
+        fitted). Only for joints whose gear joint is compliant (not RIGID): the play is a dead zone of its spring."""
+        self.play[env_ids] = torch.as_tensor(play, dtype=torch.float32, device=self.device)
+        self.has_play = bool((self.play > 0).any())
+        if not self.has_play:
+            self.data.qfrc_applied[:, self.gear_v] = 0.0
+
+    def _gear_seen(self, g: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Gear joint angles (n, J) -> the part inside the free play (which the output encoder reads in full) and
+        the elastic rest (of which it reads the gear's share)."""
+        half = 0.5 * self.play
+        inner = torch.clamp(g, -half, half)
+        return inner, g - inner
+
+    def set_zero_error(self, err: torch.Tensor, env_ids: torch.Tensor | slice = slice(None)) -> None:
+        """Calibration error of each joint's zero [rad], (n, J): every angle that leaves or enters the servo (the
+        encoder reading, the goal) is the true one plus this, as with a wrong offset in the joint calibration. The
+        arm then is not where its kinematics say: a blade thought level leans."""
+        self.zero_error[env_ids] = torch.as_tensor(err, dtype=torch.float32, device=self.device)
 
     def encoder(self) -> torch.Tensor:
-        """What the servo encoders read: motor-side angle + gear deflection, (num_envs, J)."""
+        """What the servo encoders read: motor-side angle + the gears' free play + the gear's share of the elastic
+        deflection (+ the zero's calibration error), (num_envs, J)."""
         q = self.data.qpos
-        return q[:, self.servo_q] + q[:, self.gear_q]
+        inner, rest = self._gear_seen(q[:, self.gear_q])
+        return q[:, self.servo_q] + inner + self.seen * rest + self.zero_error
 
     def encoder_vel(self) -> torch.Tensor:
         v = self.data.qvel
-        return v[:, self.servo_v] + v[:, self.gear_v]
+        g = self.data.qpos[:, self.gear_q]
+        share = torch.where(g.abs() < 0.5 * self.play, torch.ones_like(self.seen), self.seen)
+        return v[:, self.servo_v] + share * v[:, self.gear_v]
 
     def teleport(self, q_enc: torch.Tensor, dq: torch.Tensor, env_ids: torch.Tensor | slice = slice(None)) -> None:
         """Set encoder angles/velocities with the gear springs relaxed, and sync the firmware state."""
         d = self.data
         rows = env_ids[:, None] if isinstance(env_ids, torch.Tensor) else env_ids
-        d.qpos[rows, self.servo_q] = q_enc
+        d.qpos[rows, self.servo_q] = q_enc - self.zero_error[env_ids]
         d.qpos[rows, self.gear_q] = 0.0
         d.qvel[rows, self.servo_v] = dq
         d.qvel[rows, self.gear_v] = 0.0
@@ -254,6 +316,10 @@ class ServoModel:
         duty = torch.clamp(duty, -MAX_PWM, MAX_PWM)
         kt_r = p["kt"] / p["R"]
         tau = kt_r * (self.vin * duty) - kt_r * back_emf
+        if self.has_play:
+            # Free play: cancel the gear joint's spring inside +-play/2 (it then acts on the excess only).
+            half = 0.5 * self.play
+            d.qfrc_applied[:, self.gear_v] = self.k_series * torch.clamp(d.qpos[:, self.gear_q], -half, half)
 
         # Friction budget (BAM m6), from the previous step's motor torque and the current external load.
         prev_tau = d.qfrc_actuator[:, self.servo_v]

@@ -16,8 +16,8 @@ from mjlab.managers.action_manager import ActionTerm, ActionTermCfg
 from mjlab.managers.event_manager import requires_model_fields
 
 from pingpong_sim.controller import BounceController
-from pingpong_sim.robot import ARM_JOINTS
-from pingpong_sim.servo_actuator import encoder_vel
+from pingpong_sim.robot import ARM_JOINTS, joint_inertia
+from pingpong_sim.servo_actuator import encoder_vel, servo_model
 from pingpong_sim.task.state import PingPongState, TaskCfg, get
 
 __all__ = ["TaskCfg"]
@@ -44,13 +44,63 @@ def _ids(env, env_ids) -> torch.Tensor:
 
 @requires_model_fields("pair_solref")
 def randomize_ball_contact(env, env_ids, dampratio: tuple[float, float]) -> None:
-    """Reset: ball-blade contact damping ratio, which sets the restitution (0.155-0.235 ~ e 0.65-0.51 at 1 ms,
-    scripts/contact_sweep.py; nominal 0.19 ~ 0.58). The drag coefficient can't vary per world: MuJoCo Warp 3.7 keeps
+    """Reset: ball-blade contact damping ratio, which sets the restitution (0.105-0.17 ~ e 0.76-0.61 at 1 ms,
+    scripts/contact_sweep.py; nominal 0.135 ~ 0.69). The drag coefficient can't vary per world: MuJoCo Warp 3.7 keeps
     `geom_fluid` shared."""
     env_ids = _ids(env, env_ids)
     pid = env.sim.mj_model.pair("ball_blade").id
     lo, hi = dampratio
     env.sim.model.pair_solref[env_ids, pid, 1] = lo + (hi - lo) * torch.rand(len(env_ids), device=env.device)
+
+
+def randomize_arm_flex(env, env_ids, stiffness: dict[str, tuple[float, float]],
+                       damping_ratio: tuple[float, float], play_deg: dict[str, tuple[float, float]] | None = None,
+                       zero_error_deg: dict[str, float] | None = None) -> None:
+    """Reset: stiffness [N m/rad] of the structure after the named joints' encoders, log-uniform per joint (the
+    other joints stay rigid), and its damping ratio (ServoModel.set_link_stiffness). The blade then droops under
+    its own weight and rings after a stroke by more than the encoders report. `play_deg`: free play in the named
+    joints' gears, total travel, uniform (ServoModel.set_play). `zero_error_deg`: calibration error of the named
+    joints' zeros, uniform within +- the value (ServoModel.set_zero_error)."""
+    env_ids = _ids(env, env_ids)
+    inertia = getattr(env, "_joint_inertia", None)
+    if inertia is None:
+        inertia = env._joint_inertia = joint_inertia(env.sim.mj_model)
+    k, c = draw_link_flex(stiffness, damping_ratio, inertia, len(env_ids), env.device)
+    servo = servo_model(env.scene["robot"])
+    servo.set_link_stiffness(k, c, env_ids)
+    if play_deg:
+        servo.set_play(draw_play(play_deg, len(env_ids), env.device), env_ids)
+    if zero_error_deg:
+        servo.set_zero_error(draw_zero_error(zero_error_deg, len(env_ids), env.device), env_ids)
+
+
+def draw_zero_error(zero_error_deg: dict[str, float], k: int, device="cpu") -> torch.Tensor:
+    """Joint zero errors [rad], (k, 5), uniform within +- the given degrees: the draw of `randomize_arm_flex`."""
+    err = torch.zeros(k, len(ARM_JOINTS), device=device)
+    for name, a in zero_error_deg.items():
+        err[:, ARM_JOINTS.index(name)] = torch.deg2rad(a * (2 * torch.rand(k, device=device) - 1))
+    return err
+
+
+def draw_play(play_deg: dict[str, tuple[float, float]], k: int, device="cpu") -> torch.Tensor:
+    """Gear play [rad], (k, 5): the draw of `randomize_arm_flex`."""
+    play = torch.zeros(k, len(ARM_JOINTS), device=device)
+    for name, (lo, hi) in play_deg.items():
+        play[:, ARM_JOINTS.index(name)] = torch.deg2rad(lo + (hi - lo) * torch.rand(k, device=device))
+    return play
+
+
+def draw_link_flex(stiffness: dict[str, tuple[float, float]], damping_ratio: tuple[float, float],
+                   inertia: list[float], k: int, device="cpu") -> tuple[torch.Tensor, torch.Tensor]:
+    """Link stiffness and damping, each (k, 5): the draw of `randomize_arm_flex`."""
+    ks = torch.full((k, len(ARM_JOINTS)), torch.inf, device=device)
+    cs = torch.zeros(k, len(ARM_JOINTS), device=device)
+    for name, (lo, hi) in stiffness.items():
+        j = ARM_JOINTS.index(name)
+        ks[:, j] = lo * (hi / lo) ** torch.rand(k, device=device)
+        zeta = damping_ratio[0] + (damping_ratio[1] - damping_ratio[0]) * torch.rand(k, device=device)
+        cs[:, j] = 2 * zeta * torch.sqrt(ks[:, j] * inertia[j])
+    return ks, cs
 
 
 def push_ball(env, env_ids, dv: float) -> None:
@@ -71,11 +121,12 @@ def push_ball(env, env_ids, dv: float) -> None:
 
 @dataclass(kw_only=True)
 class BounceActionCfg(ActionTermCfg):
-    """Servo goals for the 5 arm joints: `base + scale * action`, base = the scripted bouncer's goal (residual) or
-    the ready pose (direct). Goals are clipped to the joint limits."""
+    """Servo goals for the 5 arm joints: `base + scale * clip(action)`, base = the scripted bouncer's goal (residual)
+    or the ready pose (direct). Goals are clipped to the joint limits."""
 
     entity_name: str = "robot"
-    scale: float = 0.1  # rad per unit action
+    scale: float | tuple[float, ...] = 0.1  # rad per unit action (one value, or one per joint)
+    clip: float | None = None  # raw actions are clipped to +-clip before scaling (bounds what the policy can add)
     residual: bool = True
 
     def build(self, env) -> BounceAction:
@@ -91,6 +142,7 @@ class BounceAction(ActionTerm):
         self._ids = torch.tensor(ids, device=self.device)
         self._raw = torch.zeros(self.num_envs, 5, device=self.device)
         self._goal = torch.zeros(self.num_envs, 5, device=self.device)
+        self._scale = torch.as_tensor(cfg.scale, dtype=torch.float32, device=self.device).expand(5)
 
     @property
     def action_dim(self) -> int:
@@ -104,7 +156,8 @@ class BounceAction(ActionTerm):
         st = get(self._env)
         st.update()  # normally done by the last observation already
         self._raw[:] = actions
-        self._goal = torch.clamp(st.ctrl.goal_base() + self.cfg.scale * actions, st.kin.lo, st.kin.hi)
+        a = actions if self.cfg.clip is None else actions.clamp(-self.cfg.clip, self.cfg.clip)
+        self._goal = torch.clamp(st.ctrl.goal_base() + self._scale * a, st.kin.lo, st.kin.hi)
 
     def apply_actions(self) -> None:
         self._entity.set_joint_position_target(self._goal, joint_ids=self._ids)
@@ -165,6 +218,14 @@ def history(env) -> torch.Tensor:
     return _ctrl(env).obs_history()
 
 
+def memory(env) -> torch.Tensor:
+    """This rally's last 6 bounces, newest first, 14 numbers each: state (1 scored, 0.5 unscored, 0 empty), age,
+    face lean at the bounce by the encoders (2), blade speed along its normal, landing point from the face centre
+    (2), speed in, velocity out (3), surprise = velocity out minus the filter's prediction (3); then the mean
+    sideways surprise of the scored ones (2) and their count / 10 (87)."""
+    return _ctrl(env).obs_memory()
+
+
 # -- observations (critic, privileged) -----------------------------------------------------------------------------
 
 
@@ -192,6 +253,11 @@ def launch_state(env) -> torch.Tensor:
 def mismatch(env) -> torch.Tensor:
     """Gravity the filter and bouncer believe, relative to the true one, minus 1 (1)."""
     return (_ctrl(env).filter.g / G - 1.0)[:, None]
+
+
+def zero_error(env) -> torch.Tensor:
+    """Calibration error of the joint zeros [rad] (5)."""
+    return servo_model(env.scene["robot"]).zero_error.clone()
 
 
 # -- rewards -------------------------------------------------------------------------------------------------------
@@ -226,6 +292,19 @@ def bounce_centered(env, std: float, apex_std: float) -> torch.Tensor:
     by the apex."""
     s = get(env).summary()
     return _apex_weight(env, apex_std) * torch.exp(-((s["lateral"] / std) ** 2))
+
+
+def ball_energy(env, radius: float) -> torch.Tensor:
+    """Every step: the ball's vertical energy above the hitting plane (height + speed) as a share of the target
+    bounce's, capped at 1, while it is over the blade (within `radius` of the true face centre) and released. A
+    ball at rest on the blade earns nothing; one bounced at the target height earns 1 all the way."""
+    st = get(env)
+    s = st.summary()
+    p, v = s["p"], s["v"]
+    face, _ = st.face_true()
+    over = s["released"] & ((p[:, :2] - face[:, :2]).norm(dim=-1) < radius) & (p[:, 2] > face[:, 2])
+    energy = G * (p[:, 2] - st.z_ball).clamp_min(0.0) + 0.5 * v[:, 2] ** 2
+    return over.float() * (energy / (G * st.cfg.apex)).clamp(max=1.0)
 
 
 def action_l2(env) -> torch.Tensor:

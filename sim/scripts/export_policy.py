@@ -88,9 +88,10 @@ def main() -> None:
         "action": {
             "dim": 5,
             "scale": arm_cfg.scale,
+            "clip": arm_cfg.clip,
             "residual": arm_cfg.residual,
-            "goal": ("clip(bouncer_goal + scale * action, joint_lower, joint_upper)" if arm_cfg.residual
-                     else "clip(q_ready + scale * action, joint_lower, joint_upper)"),
+            "goal": ("clip(bouncer_goal + scale * clip(action, -clip, clip), joint_lower, joint_upper)" if arm_cfg.residual
+                     else "clip(q_ready + scale * clip(action, -clip, clip), joint_lower, joint_upper)"),
         },
         "observation": {
             "dim": int(x.shape[1]),
@@ -101,7 +102,9 @@ def main() -> None:
         # Geometry and planning settings the deploy loop must match (observations are relative to these).
         "task": {k: getattr(st.cfg, k) for k in ("target_xy", "hit_z", "apex", "trust_vel_std", "use_bouncer")},
         "bouncer": {k: v for k, v in asdict(st.ctrl.bouncer.cfg).items() if isinstance(v, (int, float, bool, tuple))},
-        "controller": {k: getattr(st.ctrl.cfg, k) for k in ("history_len", "history_stride")},
+        "controller": {k: getattr(st.ctrl.cfg, k) for k in ("history_len", "history_stride", "memory_slots",
+                                                            "memory_delay")},
+        "filter": {"restitution": st.ctrl.cfg.filter.restitution},
         "onnx_check": {"samples": int(len(x)), "max_abs_diff": float(diff)},
     }
     (out / "policy.json").write_text(json.dumps(spec, indent=2) + "\n")

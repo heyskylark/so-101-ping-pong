@@ -25,16 +25,16 @@
     "max_current": 2.754467163161826,
     "gear_stiffness": [
         322.72261930120527,
-        589.6578813418134,
-        457.02548361537526,
+        220.0,
+        70.0,
         553.3255998607889,
         47.99422964843285
     ],
     "gear_damping": 0.02926158631171818,
     "friction_scale": [
         1.037155030206851,
-        1.1308877935198305,
-        1.1580181923616881,
+        0.55,
+        0.70,
         0.8035772207621411,
         0.9996528653715224
     ],
@@ -51,5 +51,6 @@
         "measurements/servo/2026-11-10_093340_strokes",
         "measurements/servo/2026-11-10_093504_strokes"
     ],
-    "fit_report": "measurements/servo/fit_2026-11-10_093618"
+    "fit_report": "measurements/servo/fit_2026-11-10_093618",
+    "replaced_servos": "shoulder_lift and elbow_flex gear_stiffness and friction_scale: 2026-11-12, the servos fitted that day, from measurements/servo/2026-11-12_221544_tune_hold (sim/build/analysis/fit_hold.py: stroke-reaction amplitudes at P 64 and 32 gave 222 / 97 and 0.54 / 0.70 with 0.9 / 2.0 deg of gear play and 7 ms feedback delay; the elbow set to 70 so that the task's random arms bracket the rig's 1.1 deg of elbow motion per stroke, sim/build/analysis/sim_hold_dist.py); before: 589.66 / 457.03 and 1.131 / 1.158"
 }

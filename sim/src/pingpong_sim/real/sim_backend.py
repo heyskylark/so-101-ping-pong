@@ -29,13 +29,14 @@ from pingpong_sim.camera_sim import CameraRig
 from pingpong_sim.controller import ArmHistory
 from pingpong_sim.kinematics import ArmKinematics
 from pingpong_sim.real.camera_model import CameraCalib, PixelDetection, _noise
-from pingpong_sim.robot import ARM_JOINTS, FIRMWARE_P, READY_JOINT_POS
+from pingpong_sim.robot import ARM_JOINTS, FIRMWARE_P, READY_JOINT_POS, joint_inertia
 from pingpong_sim.servo_actuator import ServoDrive
 from pingpong_sim.servo_bus import JOINTS, MAX_RES, MODEL_STS3215, RAD_PER_TICK, JointMap, State
 from pingpong_sim.servo_model import ServoModel
+from pingpong_sim.task.mdp import draw_link_flex, draw_play, draw_zero_error
 from pingpong_sim.task.state import TaskCfg, launch_ball
 
-DATA_FIELDS = ("qpos", "qvel", "qfrc_actuator", "qfrc_bias")
+DATA_FIELDS = ("qpos", "qvel", "qfrc_actuator", "qfrc_bias", "qfrc_applied")
 
 
 class Mirror:
@@ -84,6 +85,8 @@ class CpuWorld:
         self.wcam = m.camera("robot/wrist_cam").id
         self.pair = m.pair("ball_blade").id
         self.flip = torch.diag(torch.tensor([1.0, -1.0, -1.0]))
+        self.flex = env_cfg.events["arm_flex"].params if "arm_flex" in env_cfg.events else None
+        self.joint_inertia = joint_inertia(m)
         self.mm, self.dm = Mirror(m, ServoModel.EXPANDED_FIELDS), Mirror(self.d, DATA_FIELDS)
         servo = ServoModel(self.mm, self.dm, m, names, [FIRMWARE_P[j] for j in ARM_JOINTS], 1, "cpu")
         act_cfg = env_cfg.scene.entities["robot"].articulation.actuators[0]
@@ -104,6 +107,10 @@ class CpuWorld:
         self.hold_p = self.target[None].clone()
         self.release = math.inf
         self.next_push = math.inf
+        # Restitution redrawn during the episode (the task's "bounce_contact" interval event, if it has one).
+        ev = env_cfg.events.get("bounce_contact")
+        self.bounce = None if ev is None else {"dampratio": ev.params["dampratio"], "every": ev.interval_range_s}
+        self.next_bounce = 0.0
 
     # -- state
     def encoders(self) -> tuple[torch.Tensor, torch.Tensor]:
@@ -152,6 +159,13 @@ class CpuWorld:
         self.drive.request_resample(self.ids)
         self.drive.mark_pending(self.ids)
         m.pair_solref[self.pair, 1] = self.damp[0] + (self.damp[1] - self.damp[0]) * np.random.rand()
+        if self.flex is not None:  # mdp.randomize_arm_flex
+            flex = dict(self.flex)
+            play, zero = flex.pop("play_deg", None), flex.pop("zero_error_deg", None)
+            servo = self.drive.servo
+            servo.set_link_stiffness(*draw_link_flex(**flex, inertia=self.joint_inertia, k=1))
+            servo.set_play(draw_play(play, 1) if play else torch.zeros(1, len(ARM_JOINTS)))
+            servo.set_zero_error(draw_zero_error(zero, 1) if zero else torch.zeros(1, len(ARM_JOINTS)))
         mujoco.mj_resetData(m, d)
         self.dm.pull()
         if q_start is None:
@@ -173,6 +187,8 @@ class CpuWorld:
             self.dm.pull()
             tau = self.drive.step(self.goal)
             self.mm.push()
+            if self.drive.servo.has_play:
+                self.dm.push(("qfrc_applied",))
             d.ctrl[self.act] = tau[0].numpy() if self.torque else 0.0
             mujoco.mj_step(m, d)
         mujoco.mj_forward(m, d)
@@ -186,6 +202,10 @@ class CpuWorld:
         elif self.now >= self.next_push:
             self.d.qvel[self.va:self.va + 3] += np.random.uniform(-self.push_dv, self.push_dv, 3)
             self.next_push = self.now + np.random.uniform(*self.push_every)
+        if self.bounce is not None and self.now >= self.next_bounce:  # env_cfg "bounce_contact": a new restitution
+            lo, hi = self.bounce["dampratio"]
+            self.m.pair_solref[self.pair, 1] = lo + (hi - lo) * np.random.rand()
+            self.next_bounce = self.now + np.random.uniform(*self.bounce["every"])
 
     def record(self, restart: bool = False) -> None:
         """Encoder arm history and camera truth for this tick (after physics and events)."""

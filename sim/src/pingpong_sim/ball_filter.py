@@ -45,7 +45,7 @@ _PADDLE_KEYS = ("center", "normal", "vel")  # what propagation reads from the pa
 @dataclass
 class BallFilterCfg:
     accel_noise: float = 0.5  # m/s^2, white acceleration noise (Cd +-0.03 is ~0.06 m/s^2; spin, model error)
-    restitution: float = 0.58  # normal, measured on the blade centre (measurements/ball)
+    restitution: float = 0.68  # normal, black rubber on the blade centre (ball.py; the red side: 0.58)
     restitution_std: float = 0.06
     tangential_keep: float = 0.5  # fraction of the tangential speed kept (measured 0.37-0.41, sim 0.6)
     tangential_std: float = 0.2

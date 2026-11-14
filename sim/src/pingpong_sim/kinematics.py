@@ -172,3 +172,21 @@ class ArmKinematics:
             q = torch.clamp(q - dq, self.lo, self.hi)
         face, _, _, _ = self.fk(q)
         return q, (face - face_target).norm(dim=-1)
+
+    def aim(self, normal_target: torch.Tensor, y_target: torch.Tensor, q0: torch.Tensor,
+            joints: tuple[int, ...] = (0, 3, 4), iters: int = 4, normal_weight: float = 0.3, damping: float = 1e-5):
+        """Damped Gauss-Newton from q0 (B, 5) turning only `joints` (pan, wrist_flex, wrist_roll): face normal
+        along normal_target (B, 3), face centre at y = y_target (B,). The other joints stay at q0, so the face
+        centre's x and z are whatever the tilt makes them. Returns q (B, 5) within the joint limits."""
+        q = q0.clone()
+        idx = list(joints)
+        eye = torch.eye(len(idx), device=q.device)
+        for _ in range(iters):
+            face, normal, o, a = self.fk(q)
+            Jp, Jn = self.jacobian(face, normal, o, a)
+            J = torch.cat([Jp[:, 1:2], normal_weight * Jn], dim=1)[:, :, idx]  # (B, 4, len(joints))
+            r = torch.cat([(face[:, 1] - y_target)[:, None], normal_weight * (normal - normal_target)], dim=1)
+            JT = J.transpose(1, 2)
+            dq = torch.linalg.solve(JT @ J + damping * eye, JT @ r.unsqueeze(-1)).squeeze(-1)
+            q[:, idx] = torch.clamp(q[:, idx] - dq, self.lo[idx], self.hi[idx])
+        return q

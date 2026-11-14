@@ -16,7 +16,7 @@ rests, checks the plan in the sim (joint limits, table clearance, blade vs arm),
 the start pose, turns torque off and restores the servos' previous gains. Ctrl-C at any time: the arm freezes and
 returns slowly to its start pose; a second Ctrl-C cuts torque at once (the arm drops).
 
-Plan, at three level-blade poses (blade centre 0.40/0.25, 0.35/0.20, 0.45/0.30 m out/up), per joint, the others
+Plan, at three level-blade poses (blade centre 0.28/0.31, 0.30/0.27, 0.33/0.34 m out/up), per joint, the others
 holding: steps of 3 sizes both ways (delay, speed under load, overshoot), slow reversals (friction, backlash) and
 a 0.3-5 Hz chirp (bandwidth); then 20 s of bounce-like multi-joint motion. Logs: goal and present position,
 velocity, load, current, voltage, temperature, host timestamps of each command and read.
@@ -42,13 +42,15 @@ from pathlib import Path
 import numpy as np
 
 from pingpong_sim.real.arm import (JOINT_MAP, RATE, V_RETREAT, WATCHDOG, Abort, ArmModel, ArmSession, Plan,
-                                   PlanBuilder, Watchdog, check_plan, gain_profile, open_bus)
-from pingpong_sim.robot import READY_JOINT_POS
+                                   PlanBuilder, Watchdog, check_plan, gain_profile, open_bus, use_rig_tracking)
+from pingpong_sim.robot import READY_JOINT_POS, READY_X, READY_Z
 from pingpong_sim.servo_bus import JOINTS, RAD_PER_TICK, JointMap, SimBus
 
 REPO = Path(__file__).resolve().parents[2]
-POSES = {"ready": (0.40, 0.25), "near_low": (0.35, 0.20), "far_high": (0.45, 0.30)}  # blade centre (x, z) [m]
-STEP_AMPS = {j: (0.05, 0.15, 0.30) for j in JOINTS} | {"wrist_roll": (0.10, 0.30, 0.80)}
+# Blade centre (x, z) [m]: the ready pose and two level-blade poses around it.
+POSES = {"ready": (READY_X, READY_Z), "near_low": (0.30, 0.27), "far_high": (0.33, 0.34)}
+# The largest steps were 0.30 rad until 2026-11-12, when the elbow servo's gears gave out during them.
+STEP_AMPS = {j: (0.05, 0.10, 0.15) for j in JOINTS} | {"wrist_roll": (0.10, 0.30, 0.80)}
 STEP_HOLD = 0.7  # s
 CHIRP = dict(f0=0.3, f1=5.0, seconds=12.0, v_peak=1.5)  # amplitude min(A0, v_peak / (2 pi f))
 CHIRP_A0 = {j: 0.12 for j in JOINTS} | {"wrist_roll": 0.30}
@@ -382,7 +384,7 @@ def stroke_series(kin_t, q_ready: np.ndarray, apex: float, dx: float, dy: float,
         plan.append(b.evaluate(torch.tensor([t]))[0][0].numpy().astype(float))
         pn, vn = flight_np(p, v, dt)
         if len(impacts) < STROKE_BOUNCES and p[2] >= z_ball > pn[2] and vn[2] < 0:
-            impacts.append(t + dt * (p[2] - z_ball) / max(p[2] - pn[2], 1e-9))
+            impacts.append(float(b.t_hit[0]))  # the bouncer's planned impact (the plane crossing, or its tilted face)
             vo = apex_speed(apex)
             pn = np.array([pn[0], pn[1], z_ball])
             vn = np.array([*(cfg.steer_gain * (tgt - pn[:2]) / (2 * vo / G)), vo])
@@ -400,6 +402,9 @@ def cmd_strokes(args) -> int:
     from pingpong_sim.real.camera_model import ArmCalib
 
     offsets = None if args.sim else np.array(ArmCalib.load().joint_offsets)
+    tracking = None if args.sim else use_rig_tracking()  # before stroke_series builds the bouncer
+    if tracking:
+        print(f"feedforward from the rig's tracking model ({tracking})")
     bus = make_bus(args)
     model = ArmModel()
     kin_t = ArmKinematics(model.m, prefix="", device="cpu")
@@ -409,6 +414,11 @@ def cmd_strokes(args) -> int:
     timing = {k: v for k, v in (("stroke_time", args.stroke_time), ("follow", args.follow)) if v is not None}
     if args.stroke_joint:
         timing["stroke_joint"] = JOINTS.index(args.stroke_joint)
+    for kv in args.set:
+        from pingpong_sim.bouncer import BouncerCfg
+
+        key, val = kv.split("=")
+        timing[key] = type(getattr(BouncerCfg(), key))(float(val))
     for i, (apex, dx, dy) in enumerate(series):
         g, pl, imp = stroke_series(kin_t, q_ready, apex, dx, dy, **timing)
         hold = np.repeat(q_ready[None], int(1.0 * RATE), axis=0)
@@ -474,6 +484,8 @@ def main() -> int:
     ap.add_argument("--stroke-joint", choices=["elbow_flex", "wrist_flex"],
                     help="strokes: the joint that makes the stroke (default the bouncer's, the elbow)")
     ap.add_argument("--apexes", type=float, nargs="+", help="strokes: bounce heights (default 0.25 0.20 0.15)")
+    ap.add_argument("--set", nargs="*", default=[], metavar="KEY=VALUE",
+                    help="strokes: other BouncerCfg fields, e.g. wrist_only=1 reach=0.02")
     src = ap.add_mutually_exclusive_group(required=True)
     src.add_argument("--port", help="servo bus serial port, e.g. /dev/ttyACM0")
     src.add_argument("--sim", action="store_true", help="run against the MuJoCo Warp model")

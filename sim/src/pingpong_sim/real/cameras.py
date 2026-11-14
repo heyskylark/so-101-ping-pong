@@ -21,6 +21,7 @@ import subprocess
 import threading
 import time
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -88,14 +89,29 @@ def v4l2_devices() -> list[tuple[str, str]]:
 
 
 def set_controls(device: str, exposure_ms: float) -> list[str]:
-    """Manual exposure (units of 100 us) and fixed white balance; returns problems (control names vary by kernel)."""
+    """Manual exposure (units of 100 us) and fixed white balance; returns problems (control names vary by kernel).
+    The U20CAM can refuse exposure writes ("Permission denied") while reporting manual mode; switching to auto
+    and back clears that (seen after replugging, 2026-11-12). A refused write is a problem only if the camera
+    then still reads another value."""
+    def ctl(arg: str, value: str) -> subprocess.CompletedProcess:
+        return subprocess.run(["v4l2-ctl", "-d", device, arg, value], capture_output=True, text=True)
+
     problems = []
     tries = [("auto_exposure", 1), ("exposure_time_absolute", max(1, round(exposure_ms * 10))),
              ("exposure_dynamic_framerate", 0), ("white_balance_automatic", 0), ("focus_automatic_continuous", 0)]
     for name, value in tries:
-        r = subprocess.run(["v4l2-ctl", "-d", device, "-c", f"{name}={value}"], capture_output=True, text=True)
-        if r.returncode != 0 and name in ("auto_exposure", "exposure_time_absolute"):
-            problems.append(f"{name}={value}: {r.stderr.strip()}")
+        r = ctl("-c", f"{name}={value}")
+        if r.returncode == 0 or name not in ("auto_exposure", "exposure_time_absolute"):
+            continue
+        if ctl("-C", name).stdout.split(":")[-1].split()[:1] == [str(value)]:
+            continue  # refused, but already there
+        if name == "exposure_time_absolute":
+            ctl("-c", "auto_exposure=3")
+            ctl("-c", "auto_exposure=1")
+            r = ctl("-c", f"{name}={value}")
+            if r.returncode == 0:
+                continue
+        problems.append(f"{name}={value}: {r.stderr.strip()}")
     return problems
 
 
@@ -167,6 +183,7 @@ class UvcCamera(threading.Thread):
         self.latency: list[float] = []  # arrival - buffer stamp, s (last 100)
         self.last_frame: np.ndarray | None = None
         self.error: str | None = None
+        self.record = None  # callable(name, stamp, frame) given every frame (FrameRecorder.put)
 
     def open(self) -> cv2.VideoCapture:
         problems = set_controls(self.cfg.device, self.cfg.exposure_ms)
@@ -209,6 +226,8 @@ class UvcCamera(threading.Thread):
                     continue
                 self.frames += 1
                 self.last_frame = frame
+                if self.record is not None:
+                    self.record(self.name_, stamp, frame)
                 self.latency = (self.latency + [arrival - stamp])[-100:]
                 result = self.process(frame) if self.process else None
                 if result is not None:
@@ -234,6 +253,41 @@ class UvcCamera(threading.Thread):
             self.join(2.0)
 
 
+class FrameRecorder(threading.Thread):
+    """Saves frames as JPEG, `<dir>/<camera>/<buffer stamp, s>.jpg`, off the capture threads (encoding a frame takes
+    a few ms). Frames arriving while its queue is full are dropped and counted."""
+
+    def __init__(self, out_dir, quality: int = 90, max_queue: int = 128):
+        super().__init__(daemon=True, name="frame-recorder")
+        self.dir, self.quality = Path(out_dir), quality
+        self.q: queue.Queue = queue.Queue(maxsize=max_queue)
+        self.stop_flag = threading.Event()
+        self.saved = 0
+        self.dropped = 0
+
+    def put(self, camera: str, stamp: float, frame: np.ndarray) -> None:
+        try:
+            self.q.put_nowait((camera, stamp, frame))
+        except queue.Full:
+            self.dropped += 1
+
+    def run(self) -> None:
+        while not (self.stop_flag.is_set() and self.q.empty()):
+            try:
+                camera, stamp, frame = self.q.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            d = self.dir / camera
+            d.mkdir(parents=True, exist_ok=True)
+            cv2.imwrite(str(d / f"{stamp:.6f}.jpg"), frame, [cv2.IMWRITE_JPEG_QUALITY, self.quality])
+            self.saved += 1
+
+    def stop(self) -> None:
+        self.stop_flag.set()
+        if self.is_alive():
+            self.join(20.0)
+
+
 class BallCameras:
     """The rig's cameras running ball detection; `drain()` -> PixelDetections since the last call."""
 
@@ -242,8 +296,11 @@ class BallCameras:
         if missing:
             raise SystemExit(f"no device for {missing} in {RIG}: run `scripts/cameras.py assign <name> <device>`")
         self.cams = [UvcCamera(n, rig.cameras[n], BallDetector(rig.ball, ignore=load_ignore(n))) for n in names]
+        self.recorder: FrameRecorder | None = None
 
     def start(self) -> None:
+        if self.recorder is not None:
+            self.recorder.start()
         for c in self.cams:
             c.start()
         t = time.perf_counter()
@@ -258,8 +315,17 @@ class BallCameras:
     def drain(self) -> list[PixelDetection]:
         return [PixelDetection(c.name_, stamp, *r) for c in self.cams for stamp, r in c.drain()]
 
+    def record_to(self, out_dir) -> None:
+        """Save every frame of every camera under `out_dir` from `start()` on (what the detector saw)."""
+        self.recorder = FrameRecorder(out_dir)
+        for c in self.cams:
+            c.record = self.recorder.put
+
     def stop(self) -> None:
         for c in self.cams:
             c.stop()
         for c in self.cams:
             c.join(timeout=1.0)
+        if self.recorder is not None:
+            self.recorder.stop()
+            print(f"frames saved: {self.recorder.saved} in {self.recorder.dir} (dropped {self.recorder.dropped})")

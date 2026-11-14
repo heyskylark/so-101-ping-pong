@@ -35,8 +35,10 @@ from pingpong_sim.robot import ARM_JOINTS
 from pingpong_sim.servo_actuator import FIT_PARAMS, _servo_actuator, encoder_vel
 from pingpong_sim.task.state import get
 
-# Ball-blade damping ratio bins (randomize_ball_contact) and their restitution at 1 ms contact (contact_sweep.py).
-DAMP_BINS = ((0.155, 0.182, "e 0.65-0.61"), (0.182, 0.208, "e 0.61-0.56"), (0.208, 0.235, "e 0.56-0.51"))
+# Ball-blade damping ratio bins (randomize_ball_contact) and their restitution at 1 ms contact (contact_sweep.py up
+# to 0.19 = 0.58; the last bin's lower end is extrapolated).
+DAMP_BINS = ((0.105, 0.127, "e 0.76-0.70"), (0.127, 0.148, "e 0.70-0.65"), (0.148, 0.17, "e 0.65-0.61"),
+             (0.17, 0.195, "e 0.61-0.57"), (0.195, 0.2201, "e 0.57-~0.53"))
 
 
 def pct(x: np.ndarray, scale: float = 1.0, fmt: str = ".0f") -> str:
@@ -52,11 +54,22 @@ def main() -> None:
     ap.add_argument("--agent", choices=["zero", "random"], default="zero")
     ap.add_argument("--checkpoint", help="rsl_rl checkpoint (overrides --agent)")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--without", nargs="*", default=[], metavar="EVENT",
+                    help="drop these randomization events, e.g. arm_flex push_ball")
+    ap.add_argument("--task-set", nargs="*", default=[], metavar="KEY=VALUE[,VALUE]",
+                    help="TaskCfg fields, e.g. belief_gravity=1,1 midflight_prob=0 drop_height=0.1,0.2")
     args = ap.parse_args()
     torch.manual_seed(args.seed)
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
     env_cfg = load_env_cfg(args.task)
+    for name in args.without:  # ablations: which randomization costs what
+        env_cfg.events.pop(name)
+    task = env_cfg.events["reset_episode"].params["task"]
+    for kv in args.task_set:
+        key, val = kv.split("=")
+        vals = tuple(float(v) for v in val.split(","))
+        setattr(task, key, vals if isinstance(getattr(task, key), tuple) else type(getattr(task, key))(vals[0]))
     env_cfg.scene.num_envs = args.envs
     env_cfg.seed = args.seed
     env = ManagerBasedRlEnv(cfg=env_cfg, device=device)

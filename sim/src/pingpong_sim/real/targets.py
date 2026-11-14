@@ -29,9 +29,11 @@ def load_spec() -> dict:
     return spec
 
 
-def _params() -> cv2.aruco.DetectorParameters:
+def _params(thresh_win_max: int = 23) -> cv2.aruco.DetectorParameters:
+    """`thresh_win_max`: largest adaptive-threshold window [px] (OpenCV's default 23; tried from 3 in steps of 10)."""
     p = cv2.aruco.DetectorParameters()
     p.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
+    p.adaptiveThreshWinSizeMax = thresh_win_max
     return p
 
 
@@ -41,7 +43,8 @@ class TagDetector:
         self.id = spec["tag"]["paddle_id"]
         self.size = spec["tag_mm"] / 1000
         d = cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, spec["tag"]["opencv_dictionary"]))
-        self.det = cv2.aruco.ArucoDetector(d, _params())
+        # The paddle tag gets ~250 px across (cells ~30 px): windows up to 23 px miss it in a dim picture.
+        self.det = cv2.aruco.ArucoDetector(d, _params(thresh_win_max=63))
         s = self.size / 2
         self.object_points = np.array([[-s, s, 0], [s, s, 0], [s, -s, 0], [-s, -s, 0]], float)
 
@@ -55,6 +58,9 @@ class TagDetector:
             if i == self.id:
                 return c.reshape(4, 2).astype(float)
         return None
+
+
+_DARKEN = [(255 * (np.arange(256) / 255.0) ** g).astype(np.uint8) for g in (3.0, 4.0)]  # gamma curves
 
 
 class BoardDetector:
@@ -71,9 +77,17 @@ class BoardDetector:
         self.min_corners = min_corners
 
     def __call__(self, frame: np.ndarray) -> tuple[np.ndarray, np.ndarray] | None:
-        """(ids (n,), corners (n, 2) px) of the detected chessboard corners, or None if fewer than min_corners."""
+        """(ids (n,), corners (n, 2) px) of the detected chessboard corners, or None if fewer than min_corners.
+        A washed-out picture (bright light, a lamp in view: the markers' black cells turn grey and stop decoding)
+        is tried again darkened: 2026-11-12, 0 -> 19 of 23 wrist views; corners move ~0.6 px."""
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame
-        corners, ids, _, _ = self.det.detectBoard(gray)
-        if ids is None or len(ids) < self.min_corners:
+        best = None
+        for lut in (None, *_DARKEN):
+            corners, ids, _, _ = self.det.detectBoard(gray if lut is None else cv2.LUT(gray, lut))
+            if ids is not None and (best is None or len(ids) > len(best[0])):
+                best = ids, corners
+            if lut is None and best is not None and len(ids) >= self.min_corners:
+                break
+        if best is None or len(best[0]) < self.min_corners:
             return None
-        return ids.ravel().astype(int), corners.reshape(-1, 2).astype(float)
+        return best[0].ravel().astype(int), best[1].reshape(-1, 2).astype(float)

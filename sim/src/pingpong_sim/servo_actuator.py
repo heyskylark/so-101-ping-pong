@@ -54,11 +54,14 @@ DEFAULT_RANDOMIZATION: dict[str, tuple] = {
     "stribeck_scale": ("scale", 2.00),
     "dtheta_stribeck": ("scale", 1.50),
     "delay": ("range", 0.0, 0.020),
-    "feedback_delay": ("range", 0.0, 0.006),
+    # Feedback delay 3-12 ms and friction x/÷ 2 since 2026-11-12: the replacement lift and elbow servos fit 7 ms and
+    # 0.5-0.7 of the old fit's friction (tune_hold recording; sim/build/analysis/fit_hold.py).
+    "feedback_delay": ("range", 0.003, 0.012),
     "max_current": ("scale", 1.25),
-    "gear_stiffness": ("log_range", 80.0, 600.0),
+    # Around each joint's fitted value (the gears before its encoder): the elbow's is 70, the wrist flex's 553.
+    "gear_stiffness": ("scale", 2.00),
     "gear_damping": ("scale", 2.00),
-    "friction_scale": ("scale", 1.30),
+    "friction_scale": ("scale", 2.00),
 }
 
 
@@ -240,3 +243,8 @@ def encoder_pos(entity: Entity) -> torch.Tensor:
 def encoder_vel(entity: Entity) -> torch.Tensor:
     """Encoder velocities of the entity's servo joints (num_envs, J), in the actuator's target order."""
     return _servo_actuator(entity).servo.encoder_vel()
+
+
+def servo_model(entity: Entity) -> ServoModel:
+    """The entity's servo model (e.g. to set its link stiffness per world)."""
+    return _servo_actuator(entity).servo

@@ -18,7 +18,7 @@ from mjlab.entity import EntityCfg
 from mjlab.scene import Scene, SceneCfg
 from mjlab.sim import MujocoCfg, Simulation, SimulationCfg
 
-from pingpong_sim.ball import BALL_RADIUS, SIM_DT, add_air, add_paddle_contact, get_ball_cfg
+from pingpong_sim.ball import BALL_RADIUS, RED_SOLREF, SIM_DT, add_air, add_paddle_contact, get_ball_cfg
 from pingpong_sim.robot import get_fixed_blade_spec
 
 INCH = 0.0254
@@ -38,7 +38,7 @@ def simulate(tilt_deg: float, start: np.ndarray, seconds: float):
 
     def scene_spec(spec):
         add_air(spec)
-        add_paddle_contact(spec, "blade/blade_collision", "blade/blade")
+        add_paddle_contact(spec, "blade/blade_collision", "blade/blade", solref=RED_SOLREF)  # the videos' side
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")

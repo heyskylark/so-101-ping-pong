@@ -24,14 +24,14 @@ from pingpong_sim.bouncer import BouncerCfg
 from pingpong_sim.camera_sim import OVERHEAD, WRIST, CameraRig, CameraSimCfg
 from pingpong_sim.controller import BounceController, ControllerCfg, paddle_from_encoders
 from pingpong_sim.kinematics import ArmKinematics
-from pingpong_sim.robot import ARM_JOINTS, READY_JOINT_POS
+from pingpong_sim.robot import ARM_JOINTS, READY_JOINT_POS, READY_X, READY_Z
 from pingpong_sim.servo_actuator import encoder_pos, encoder_vel
 
 
 @dataclass
 class TaskCfg:
-    target_xy: tuple[float, float] = (0.40, 0.0)  # m, bounce point (blade centre at the ready pose)
-    hit_z: float = 0.25  # m, blade face height at impact
+    target_xy: tuple[float, float] = (READY_X, 0.0)  # m, bounce point (blade centre at the ready pose)
+    hit_z: float = READY_Z  # m, blade face height at impact
     apex: float = 0.15  # m, ball rise above the hitting plane (0.25 left the overhead camera's view on the rig)
     # The wrist camera is optional: present in 70 % of episodes. Timestamp biases up to +-15 ms (calibrated +-1 ms,
     # but the rig's impact predictions ran 19-28 ms early for reasons not yet found: the policy must cope).

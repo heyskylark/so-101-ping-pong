@@ -16,6 +16,8 @@ Two sources:
 
 Run (from sim/): uv run scripts/identify_tracking.py [--from DIR ...]
     -> src/pingpong_sim/assets/actuators/tracking_model.json
+The real arm uses measurements/calibration/tracking_model.json instead when it exists (real/arm.py,
+`use_rig_tracking`): `--from DIR --out` that path, or `--lead-gain K --out` that path.
 """
 
 from __future__ import annotations
@@ -136,7 +138,27 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--from", dest="src", nargs="+", type=Path, help="stroke recordings (record_servos.py strokes)")
     ap.add_argument("--out", type=Path, default=OUT)
+    ap.add_argument("--lead-gain", type=float,
+                    help="no fit: the model in use with A and c divided by this, i.e. the dynamic part of the bouncer's "
+                         "feedforward (how far the goal leads the plan) scaled by it, the static sag kept. For the "
+                         "real arm when it overshoots the planned stroke (2026-11-12, screws locked: blade 1.3-1.5x "
+                         "the planned speed at impact; the --from refit kept the elbow at 1.44x)")
+    ap.add_argument("--delay-ms", type=float, default=0.0,
+                    help="with --lead-gain: the model's command delay; the bouncer sends its goals this far ahead of "
+                         "the plan (with less lead the blade arrives late: 6 mm low and 1 deg tipped forward at 0.7)")
     args = ap.parse_args()
+    if args.lead_gain is not None:
+        if args.out == OUT:
+            raise SystemExit("--lead-gain is for the real arm: give --out measurements/calibration/tracking_model.json")
+        old, k = json.loads(OUT.read_text()), args.lead_gain
+        A, c = np.array(old["A"]) / k, np.array(old["c"]) / k
+        args.out.write_text(json.dumps(dict(old, A=A.tolist(), c=c.tolist(), lead_gain=k, delay_s=args.delay_ms / 1e3,
+                                            source=f"scripts/identify_tracking.py --lead-gain {k} --delay-ms "
+                                                   f"{args.delay_ms:g} (scaled from: {old.get('source', '?')})"),
+                                       indent=1) + "\n")
+        print(f"wrote {args.out}: dynamic lead x {k}, goals {args.delay_ms:g} ms ahead of the plan, sag at ready "
+              f"unchanged {np.degrees(np.linalg.solve(A, c)).round(2)} deg")
+        return None
     if args.src:
         return fit_recording(args.src, args.out)
     torch.set_grad_enabled(False)

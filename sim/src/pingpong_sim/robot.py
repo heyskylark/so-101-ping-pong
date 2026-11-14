@@ -64,17 +64,24 @@ BLADE_CENTER_Z = 0.009 + 0.1716
 # (servo_model.py, servo_actuator.py; fit to the arm's own recording). SERVO_PARAMS is the pre-fit starting point:
 # BAM's 7.4 V STS3215 m6 params scaled to the 12 V datasheet (scripts/make_sts3215_12v_params.py).
 # Firmware gains written by the ping-pong deploy code at startup: P per joint as below, I = 0, D = 0, Acceleration 0.
+# Shoulder lift and elbow: 32 since 2026-11-12 (64 before, as in the recordings the servo model was fitted to). At
+# 64 they hunted at ~3 Hz while moving (goal - encoder 1.4 deg peak to peak, 0.3 at 32) and the elbow swung 1.9 deg
+# under a wrist stroke's reaction (1.1 at 32); they hang 0.1-0.3 deg lower (scripts/tune_hold.py).
 SERVO_PARAMS = ASSETS / "actuators" / "sts3215_12v_m6.json"
-FIRMWARE_P = {"shoulder_pan": 16, "shoulder_lift": 64, "elbow_flex": 64, "wrist_flex": 32, "wrist_roll": 64}
+FIRMWARE_P = {"shoulder_pan": 16, "shoulder_lift": 32, "elbow_flex": 32, "wrist_flex": 32, "wrist_roll": 64}
 
-# Ready pose: cap-side face level and up, blade centre 0.40 m in front of the base axis and 0.25 m above the base
-# mounting face, paddle pointing straight ahead (IK, scripts/inspect_model.py). wrist_roll is 2.8 deg off zero
-# because Menagerie's roll zero is the stock follower's calibration.
+# Ready pose: cap-side face level and up, blade centre READY_X in front of the base axis and READY_Z above the base
+# mounting face, paddle pointing straight ahead (IK: real.arm.ArmModel.ik). wrist_roll is 2.8 deg off zero because
+# Menagerie's roll zero is the stock follower's calibration. Close in and high (upper arm 22 deg from vertical,
+# forearm in line with it, wrist bent 60 deg) since 2026-11-12: holding the paddle there loads shoulder lift with
+# 0.17 N m and the elbow with 0.63, against 0.67 and 0.90 at the old 0.40 / 0.25 m pose, where two servos' gears
+# wore out. Everything that takes the bounce point (bouncer, controller, task) defaults to it.
+READY_X, READY_Z = 0.28, 0.31
 READY_JOINT_POS = {
-    "shoulder_pan": -0.0005,
-    "shoulder_lift": -0.6357,
-    "elbow_flex": 0.5188,
-    "wrist_flex": 0.1169,
+    "shoulder_pan": -0.0006,
+    "shoulder_lift": -1.1826,
+    "elbow_flex": 0.1331,
+    "wrist_flex": 1.0496,
     "wrist_roll": 0.0487,
 }
 
@@ -146,6 +153,18 @@ def get_spec() -> mujoco.MjSpec:
     # indexes it as an entity joint; the servo model sets its stiffness per world (rigid until it does).
     add_gear_joints(spec, ARM_JOINTS)
     return spec
+
+
+def joint_inertia(m: mujoco.MjModel, prefix: str = "robot/") -> list[float]:
+    """Inertia [kg m^2] the arm presents to each servo joint at the ready pose (ARM_JOINTS order)."""
+    d = mujoco.MjData(m)
+    for name, q in READY_JOINT_POS.items():
+        d.qpos[m.joint(prefix + name).qposadr[0]] = q
+    mujoco.mj_forward(m, d)
+    M = np.zeros((m.nv, m.nv))
+    mujoco.mj_fullM(m, M, d.qM)
+    dofs = [m.joint(prefix + name).dofadr[0] for name in ARM_JOINTS]
+    return [float(M[i, i]) for i in dofs]
 
 
 def _quat_z_to(direction) -> tuple[float, float, float, float]:

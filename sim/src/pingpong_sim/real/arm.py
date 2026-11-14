@@ -33,6 +33,7 @@ from pingpong_sim.servo_bus import JOINTS, RAD_PER_TICK, FeetechBus, JointMap
 
 REPO = Path(__file__).resolve().parents[4]
 JOINT_MAP = REPO / "measurements" / "servo" / "joint_map.json"
+RIG_TRACKING = REPO / "measurements" / "calibration" / "tracking_model.json"
 RATE = 100.0  # Hz, command/read loop
 V_MOVE = 0.5  # rad/s, peak joint speed of transitions between poses
 V_RETREAT = 0.3  # rad/s, return to the start pose
@@ -126,6 +127,12 @@ class ArmModel:
     def forward(self, q: np.ndarray) -> None:
         self.d.qpos[self.adr] = q
         mujoco.mj_forward(self.m, self.d)
+
+    def face_pose(self, q: np.ndarray) -> tuple[np.ndarray, float]:
+        """Cap-side blade face centre (robot frame) and its tilt about the lift axis (deg, + = tip up) at `q`."""
+        self.forward(q)
+        n = self.d.site_xmat[self.face].reshape(3, 3)[:, 2]
+        return self.d.site_xpos[self.face].copy(), float(np.degrees(np.arctan2(-n[0], n[2])))
 
     def ik(self, x: float, z: float, seed: np.ndarray) -> np.ndarray:
         """Joint angles putting the cap-side face centre at (x, 0, z), face level and up, paddle pointing along x."""
@@ -238,6 +245,20 @@ class Watchdog:
                 raise Abort(f"{JOINTS[int(temp.argmax())]} at {temp.max():.0f} C (0.5 s median)")
             if volt.min() < WATCHDOG["volt"]:
                 raise Abort(f"supply {volt.min():.1f} V (0.5 s median)")
+
+
+def use_rig_tracking() -> str | None:
+    """Have the scripted bouncer's feedforward use the real arm's own tracking model when there is one
+    (`identify_tracking.py --from <stroke recordings> --out` RIG_TRACKING); returns its source, None without one
+    (then the sim's model: fitted servo model, looser and slower than the arm since its screws were locked)."""
+    if not RIG_TRACKING.exists():
+        return None
+    import json
+
+    import pingpong_sim.bouncer as bouncer
+
+    bouncer.TRACKING_MODEL = RIG_TRACKING
+    return json.loads(RIG_TRACKING.read_text()).get("source", "?")
 
 
 def open_bus(port: str):

@@ -7,6 +7,9 @@ Order (from sim/; the arm steps need the joint map and the camera devices in rig
   uv run scripts/calibrate.py intrinsics overhead           # wave the board in front of the camera
   uv run scripts/calibrate.py intrinsics wrist
   uv run scripts/calibrate.py overhead --port /dev/ttyACM0  # the arm shows the paddle tag to the overhead camera
+  uv run scripts/calibrate.py lift --paddle-height-cm 30.5   # ruler at the ready hold (arm_pose.py ready): lift offset
+  uv run scripts/calibrate.py face --front-cm 29.9 --rear-cm 30.7 --length-cm 15.1 \
+      [--left-cm 30.4 --right-cm 30.0 --width-cm 15.0]       # same hold: the face's lean; sideways: the roll zero
   uv run scripts/calibrate.py wrist --port /dev/ttyACM0     # board standing in front; the arm moves the wrist camera
   uv run scripts/calibrate.py timing overhead --port /dev/ttyACM0
   uv run scripts/calibrate.py timing wrist --port /dev/ttyACM0   # board where it stood for `wrist`
@@ -34,7 +37,7 @@ import torch
 
 from pingpong_sim.camera_sim import OVERHEAD
 from pingpong_sim.kinematics import ArmKinematics
-from pingpong_sim.real.arm import RATE, ArmModel, ArmSession, PlanBuilder, open_bus
+from pingpong_sim.real.arm import RATE, TABLE_Z, ArmModel, ArmSession, PlanBuilder, open_bus
 from pingpong_sim.real.calib_solve import (
     WRIST_BOARD_CENTRE,
     Links,
@@ -60,10 +63,11 @@ from pingpong_sim.real.camera_model import CALIB_DIR, ArmCalib, CameraCalib, app
 from pingpong_sim.real.cameras import MAX_BALL_PX, MIN_BALL_PX, BallCameras, RigConfig, UvcCamera
 from pingpong_sim.real.targets import SPEC, BoardDetector, TagDetector, load_spec
 from pingpong_sim.ball import BALL_RADIUS
-from pingpong_sim.robot import READY_JOINT_POS
+from pingpong_sim.robot import READY_JOINT_POS, READY_X
 from pingpong_sim.servo_bus import JOINTS
 
 RAW = CALIB_DIR / "raw"
+SNAPSHOTS = Path(__file__).resolve().parents[1] / "build" / "snapshots"  # as arm_pose.py
 Q_READY = np.array([READY_JOINT_POS[j] for j in JOINTS])
 
 
@@ -110,6 +114,15 @@ def hold(session: ArmSession, seconds: float) -> list[tuple[float, np.ndarray]]:
     return rows
 
 
+def skipped_picture(cam: UvcCamera, step: str, i: int) -> Path:
+    """Saves the camera's current frame at a pose where the target wasn't found (to see why); returns its path."""
+    path = SNAPSHOTS / f"{step}_skipped_{i + 1:02d}.jpg"
+    if cam.last_frame is not None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(path), cam.last_frame)
+    return path
+
+
 def check_tour(session: ArmSession, poses: np.ndarray) -> None:
     b = PlanBuilder(session.read().q)
     for q in poses:
@@ -118,6 +131,34 @@ def check_tour(session: ArmSession, poses: np.ndarray) -> None:
     problems = session.check(b.build())
     if problems:
         raise SystemExit("pose tour check failed:\n  " + "\n  ".join(problems))
+
+
+def safe_tour(session: ArmSession, poses: np.ndarray, via: np.ndarray) -> list[tuple[np.ndarray, int | None]]:
+    """Waypoints (pose, its index in `poses` or None) for a tour of the poses and back toward the start. Each pose
+    clears the table, but the joint-space line between two of them need not: a move the plan check refuses goes
+    over `via` (the ready pose: high and clear) instead, and a pose not reachable even so is left out."""
+    def ok(a: np.ndarray, b: np.ndarray) -> bool:
+        pb = PlanBuilder(a)
+        pb.move(b, name="tour")
+        return not session.check(pb.build())
+
+    at = session.read().q
+    tour: list[tuple[np.ndarray, int | None]] = []
+    for i, q in enumerate(poses):
+        if ok(at, q):
+            tour.append((q, i))
+        elif ok(at, via) and ok(via, q):
+            tour += [(via, None), (q, i)]
+            print(f"  pose {i + 1}: reached over the ready pose (the direct move dips too close to the table)")
+        else:
+            print(f"  pose {i + 1}: left out (no checked move reaches it)")
+            continue
+        at = q
+    pb = PlanBuilder(at)
+    pb.move(session.start, name="to_start")
+    if session.check(pb.build()):
+        tour.append((via, None))
+    return tour
 
 
 # ---------------------------------------------------------------------------------------------------- targets
@@ -240,7 +281,7 @@ def cmd_intrinsics(args) -> int:
 # ---------------------------------------------------------------------------------------------------- overhead
 
 def overhead_sessions() -> list[Path]:
-    return sorted(p for p in RAW.glob("*_overhead.npz") if "_intrinsics_" not in p.name)
+    return sorted(p for p in RAW.glob("*_overhead.npz") if "_intrinsics_" not in p.name and "_timing_" not in p.name)
 
 
 def cmd_overhead(args) -> int:
@@ -264,16 +305,19 @@ def cmd_overhead(args) -> int:
                               "height": calib.height, "tag_pts": tag.object_points, "tag_R": np.array(prev.tag_R),
                               "tag_p": np.array(prev.tag_p), "offsets": off_prev}
                 poses = overhead_poses(links, s.model, cp, ca, n=args.poses, camera=camera) - off_prev  # -> raw
-                check_tour(s, poses)
+                tour = safe_tour(s, poses, Q_READY - off_prev)
                 qs, corners = [], []
-                for i, q in enumerate(poses):
+                for q, i in tour:
                     s.move_to(q)
+                    if i is None:  # a detour or the way home
+                        continue
                     hold(s, 1.5)  # the arm hunts ~+-1 deg for over a second after a move
                     cam.drain()
                     rows = hold(s, 1.0)
                     dets = [c for _, c in cam.drain()]
                     if len(dets) < 5:
-                        print(f"  pose {i + 1}/{len(poses)}: tag seen in {len(dets)} frames, skipped")
+                        print(f"  pose {i + 1}/{len(poses)}: tag seen in {len(dets)} frames, skipped (picture: "
+                              f"{skipped_picture(cam, 'overhead', i)})")
                         continue
                     qs.append(np.mean([r[1] for r in rows], axis=0))
                     corners.append(np.median(np.array(dets), axis=0))
@@ -477,50 +521,58 @@ def cmd_table(args) -> int:
     return 0
 
 
-def paddle_at_ready(model: ArmModel, raw: np.ndarray, offsets: np.ndarray) -> tuple[np.ndarray, float]:
-    """Blade face centre (world) and its tilt about the lift axis (deg, + = tip up) for raw angles `raw` read
-    through `offsets` (true = raw + offset)."""
-    model.forward(raw + offsets)
-    n = model.d.site_xmat[model.face].reshape(3, 3)[:, 2]
-    return model.d.site_xpos[model.face].copy(), float(np.degrees(np.arctan2(-n[0], n[2])))
+READY_MAX_AGE_S = 1800.0  # a ruler reading belongs to the hold it was taken in
 
 
 def cmd_lift(args) -> int:
-    """The shoulder-lift offset from the paddle's height at ready (`arm_pose.py ready`, measured with a ruler from
-    the table to the top face's centre): the overhead fit can't see this offset (it trades off against the
-    camera's pitch), and the table and gravity steps measure it less directly."""
+    """The shoulder-lift offset from the paddle's height at ready, measured with a ruler from the table to the top
+    face's centre while `arm_pose.py ready` holds the arm: the overhead fit can't see this offset (it trades off
+    against the camera's pitch), and the table and gravity steps measure it less directly. The pose is the one the
+    encoders read during that hold (arm_pose.py saves it), not the goal: the servos sag ~1 deg per joint below it."""
     from scipy.optimize import brentq
 
     oc = CameraCalib.load("overhead")
     if oc.R is None or "extrinsics" not in oc.steps:
         raise SystemExit("calibrate the overhead camera first: calibrate.py overhead")
+    holds = sorted(RAW.glob("*_ready.npz"))
+    if not holds or time.time() - holds[-1].stat().st_mtime > READY_MAX_AGE_S:
+        raise SystemExit("no ready hold from the last 30 min: run `arm_pose.py ready --port <port>`, measure the "
+                         "paddle height during the hold, then run this again")
+    raw = np.load(holds[-1])["q_raw"]
     arm = ArmCalib.load()
     model = ArmModel()
-    off = np.array(arm.joint_offsets, float)
-    if args.offset_when_measured is not None:
-        off[1] = np.radians(args.offset_when_measured)
-    raw = Q_READY - off  # what arm_pose.py ready sent with those offsets
-    h = args.paddle_height_cm / 100.0
-
-    def height(lift: float) -> float:
-        o = off.copy()
-        o[1] = lift
-        return paddle_at_ready(model, raw, o)[0][2] - h
-
-    lift = brentq(height, np.radians(-20.0), np.radians(30.0), xtol=np.radians(0.005))
-    o = off.copy()
-    o[1] = lift
-    tilt = paddle_at_ready(model, raw, o)[1]
-    print(f"measured with lift offset {np.degrees(off[1]):+.2f} deg: paddle at {args.paddle_height_cm:.1f} cm -> lift "
-          f"offset {np.degrees(lift):+.2f} deg (+-{np.degrees(abs(lift - brentq(lambda L: height(L) - 0.003, np.radians(-20.0), np.radians(30.0)))):.2f}"
-          f" deg per 3 mm of ruler error); the paddle should have looked {tilt:+.1f} deg tipped (+ = tip up)")
+    prev = np.array(arm.joint_offsets, float)
+    h = args.paddle_height_cm / 100.0 + TABLE_Z  # ruler from the table -> robot frame
     tag = TagDetector()
+    links = Links(model.m)
     sessions = overhead_sessions()
     qs = np.concatenate([np.load(p)["qs"] for p in sessions])
     corners = np.concatenate([np.load(p)["corners"] for p in sessions])
-    d = np.array(arm.joint_offsets, float)
-    d[1] = lift
-    f = fit_overhead(Links(model.m), oc.Km, oc.Dm, qs, corners, tag.object_points, fixed_offsets=d)
+    lo, hi = np.radians(-20.0), np.radians(30.0)
+
+    def face(off: np.ndarray, lift: float) -> tuple[np.ndarray, float]:
+        o = off.copy()
+        o[1] = lift
+        return model.face_pose(raw + o)
+
+    # The height gives the lift offset for given elbow / wrist offsets, and the overhead refit moves those with the
+    # lift offset (the poses differ in pan, so it isn't purely a camera rotation; 0.2 deg per deg): repeat until
+    # both agree. One pass from 4 deg away left the lift offset 1 deg off.
+    off = prev.copy()
+    for _ in range(20):
+        lift = brentq(lambda a: face(off, a)[0][2] - h, lo, hi, xtol=np.radians(0.001))
+        d = off.copy()
+        d[1] = lift
+        f = fit_overhead(links, oc.Km, oc.Dm, qs, corners, tag.object_points, fixed_offsets=d)
+        settled = np.abs(f["offsets"] - d).max() < np.radians(0.01)
+        off = f["offsets"]
+        if settled:
+            break
+    per_3mm = abs(lift - brentq(lambda a: face(off, a)[0][2] - h - 0.003, lo, hi))
+    tilt = face(off, lift)[1]
+    print(f"{holds[-1].name}: paddle at {args.paddle_height_cm:.1f} cm -> lift offset {np.degrees(lift):+.2f} deg (was "
+          f"{np.degrees(prev[1]):+.2f}; +-{np.degrees(per_3mm):.2f} deg per 3 mm of ruler error); during the hold the "
+          f"face was tipped {tilt:+.1f} deg (+ = tip up)")
     print(f"overhead camera refitted at {np.round(f['p'], 3).tolist()} m, RMS {f['rms_px']:.2f} px; offsets [deg] "
           + ", ".join(f"{j} {np.degrees(x):+.2f}" for j, x in zip(JOINTS, f["offsets"])))
     oc.R, oc.p = f["R"].tolist(), f["p"].tolist()
@@ -528,11 +580,104 @@ def cmd_lift(args) -> int:
     arm.joint_offsets = f["offsets"].tolist()
     arm.tag_R, arm.tag_p = f["tag_R"].tolist(), f["tag_p"].tolist()
     arm.steps["lift"] = {"date": stamp(), "method": "paddle height at ready", "paddle_height_cm": args.paddle_height_cm,
-                         "offset_when_measured_deg": float(np.degrees(off[1])), "lift_offset_deg": float(np.degrees(lift)),
-                         "predicted_tilt_deg": tilt}
+                         "hold": holds[-1].name, "lift_offset_deg": float(np.degrees(lift)), "hold_tilt_deg": tilt}
     print("saved", oc.save(), arm.save())
-    print("to check it: `arm_pose.py ready` again; the paddle should now be level at "
-          f"{100 * paddle_at_ready(model, Q_READY - np.array(arm.joint_offsets), np.array(arm.joint_offsets))[0][2]:.1f} cm")
+    print("to check it: `arm_pose.py ready` again; the height it prints from the encoders should match the ruler "
+          "within ~3 mm")
+    return 0
+
+
+def cmd_face(args) -> int:
+    """How far the hitting face really leans forward of where the encoders and the calibration put it
+    (`ArmCalib.face_tilt`, which run_robot.py plans with), from a ruler on the blade's front and rear edge while
+    `arm_pose.py ready` holds the arm. The tag fit assumes the tag flat on a blade that sits square in its holder;
+    1 mm of ruler error on each reading is ~0.5 deg. Measured from where dropped balls go (analyze_run.py) the same
+    lean read three times larger on 2026-11-12: the ruler is the reference."""
+    holds = sorted(RAW.glob("*_ready.npz"))
+    if not holds or time.time() - holds[-1].stat().st_mtime > READY_MAX_AGE_S:
+        raise SystemExit("no ready hold from the last 30 min: run `arm_pose.py ready --port <port>`, measure the "
+                         "blade's front and rear edge heights during the hold, then run this again")
+    arm = ArmCalib.load()
+    model = ArmModel()
+    model.face_pose(np.load(holds[-1])["q_raw"] + np.array(arm.joint_offsets, float))
+    n = model.d.site_xmat[model.face].reshape(3, 3)[:, 2]
+    seen = math.atan2(args.rear_cm - args.front_cm, args.length_cm)
+    enc = float(n[0] / n[2])
+    arm.face_tilt = [seen - enc, arm.face_tilt[1]]
+    arm.steps["face_tilt"] = {"date": stamp(), "method": "ruler at the ready hold", "hold": holds[-1].name,
+                              "front_cm": args.front_cm, "rear_cm": args.rear_cm, "length_cm": args.length_cm}
+    print(f"{holds[-1].name}: the blade leans {math.degrees(seen):+.2f} deg forward by the ruler, {math.degrees(enc):+.2f} "
+          f"by the encoders (the servos' sag): face tilt {math.degrees(seen - enc):+.2f} deg (+-"
+          f"{math.degrees(math.atan2(0.14, args.length_cm)):.1f} deg for 1 mm on each reading)")
+    side = (args.left_cm, args.right_cm, args.width_cm)
+    if any(v is not None for v in side):
+        if any(v is None for v in side):
+            raise SystemExit("--left-cm, --right-cm and --width-cm go together")
+        roll_from_ruler(args, arm, model, np.load(holds[-1])["q_raw"], holds[-1].name)
+    print("saved", arm.save())
+    return 0
+
+
+def roll_from_ruler(args, arm: ArmCalib, model: ArmModel, q_raw: np.ndarray, hold: str) -> None:
+    """The wrist_roll zero from a ruler on the blade's left and right edge at the ready hold. The tag fit gets it
+    from a tag assumed flat on the blade; a ball dropped on the waiting blade then left sideways at ~0.12 m/s
+    whichever side it landed (2026-11-13), as off a face leaning ~2-3 deg. Unlike the forward lean (a sag the
+    policy is trained with) this is a plain offset of the joint, so it goes into `joint_offsets`: every mode gets
+    a level blade. The wrist camera mount and the tag placement are turned back by the same angle about the roll
+    axis (they were fitted with the old zero and the camera has not moved). `calibrate.py overhead` refits the
+    zero from the tag: run this again after it."""
+    from scipy.optimize import brentq
+
+    j = JOINTS.index("wrist_roll")
+    off = np.array(arm.joint_offsets, float)
+
+    def lean(d: float) -> float:  # the face normal's lean toward +y (left) with the roll d further than believed
+        q = q_raw + off
+        q[j] += d
+        model.face_pose(q)
+        n = model.d.site_xmat[model.face].reshape(3, 3)[:, 2]
+        return float(n[1] / n[2])
+
+    seen = math.atan2(args.right_cm - args.left_cm, args.width_cm)  # left edge lower: the normal leans left
+    enc = lean(0.0)
+    d = brentq(lambda x: lean(x) - seen, math.radians(-15), math.radians(15), xtol=1e-6)
+    move_roll_zero(arm, model, d, {"hold": hold, "left_cm": args.left_cm, "right_cm": args.right_cm,
+                                   "width_cm": args.width_cm})
+    print(f"{hold}: the blade leans {math.degrees(seen):+.2f} deg to the left by the ruler, {math.degrees(enc):+.2f} by the "
+          f"encoders (+-{math.degrees(math.atan2(0.14, args.width_cm)):.1f} deg for 1 mm on each reading). The arm now "
+          "holds the blade level; check with the ruler at the next hold.")
+
+
+def move_roll_zero(arm: ArmCalib, model: ArmModel, d: float, record: dict) -> None:
+    """Move the wrist_roll zero by d [rad] (the true roll is d further than was believed) in `arm` (not saved
+    here), and turn the wrist camera mount (saved) and the tag placement back by d about the roll axis."""
+    j = JOINTS.index("wrist_roll")
+    jid = model.m.joint("wrist_roll").id
+    axis, c = model.m.jnt_axis[jid].astype(float), model.m.jnt_pos[jid].astype(float)
+    back = cv2.Rodrigues(-d * axis / np.linalg.norm(axis))[0]  # the link frame turns by d: what is fixed to the paddle turns back
+    wrist = CameraCalib.load("wrist")
+    if wrist.R is not None:
+        wrist.R, wrist.p = (back @ np.array(wrist.R)).tolist(), (c + back @ (np.array(wrist.p) - c)).tolist()
+        wrist.steps["mount"]["roll_zero_moved_deg"] = wrist.steps["mount"].get("roll_zero_moved_deg", 0.0) + math.degrees(d)
+        print("saved", wrist.save())
+    if arm.tag_R is not None:
+        arm.tag_R, arm.tag_p = (back @ np.array(arm.tag_R)).tolist(), (c + back @ (np.array(arm.tag_p) - c)).tolist()
+    off = np.array(arm.joint_offsets, float)
+    off[j] += d
+    arm.joint_offsets = off.tolist()
+    arm.face_tilt = [arm.face_tilt[0], 0.0]
+    moves = arm.steps.setdefault("roll_zero_moves", [])
+    moves.append({"date": stamp(), "moved_deg": math.degrees(d), **record})
+    print(f"wrist_roll zero moved by {math.degrees(d):+.2f} deg (offset now {math.degrees(off[j]):+.2f})")
+
+
+def cmd_roll(args) -> int:
+    """Move the wrist_roll zero by a given angle: the fine adjustment after `face --left-cm ...`, from which way
+    dropped balls leave the waiting blade (analyze_run.py: they go to the side the face leans to). Positive turns
+    the held blade's left edge up."""
+    arm = ArmCalib.load()
+    move_roll_zero(arm, ArmModel(), math.radians(args.left_up_deg), {"why": args.why})
+    print("saved", arm.save())
     return 0
 
 
@@ -569,7 +714,8 @@ def capture_wrist(args, calib, board, arm, model, links, R_lc, p_lc, usable):
                 rows = hold(s, 1.0)
                 dets = [d for _, d in cam.drain()]
                 if len(dets) < 5:
-                    print(f"  pose {i + 1}/{len(poses)}: board seen in {len(dets)} frames, skipped")
+                    print(f"  pose {i + 1}/{len(poses)}: board seen in {len(dets)} frames, skipped (picture: "
+                          f"{skipped_picture(cam, 'wrist', i)})")
                     continue
                 per_id: dict[int, list] = {}
                 for ids, uv in dets:
@@ -731,11 +877,12 @@ def cmd_timing(args) -> int:
 
             s.follow(motion, on_tick=tick)
             dets.extend(cam.drain())
+            lost = cam.dropped - dropped0  # before the move back: nobody drains the queue then
             s.move_to(s.start)
     finally:
         cam.stop()
-    if cam.dropped > dropped0:
-        print(f"warning: {cam.dropped - dropped0} detections lost to a full camera queue")
+    if lost:
+        print(f"warning: {lost} detections lost to a full camera queue during the motion")
     t_enc, q_enc = np.array([r[0] for r in rows]), np.array([r[1] for r in rows])
     dets = [(st, d) for st, d in dets if t_enc[0] + 0.2 < st < t_enc[-1] - 0.2]
     print(f"{len(dets)} frames with the target during the {args.seconds:.0f} s motion "
@@ -763,8 +910,8 @@ def cmd_timing(args) -> int:
         extra0 = np.concatenate([rvec(np.array(m["board_R"])), np.array(m["board_p"])])
         fit = fit_timing(t_enc, q_enc, stamps, rows_f, observed, predict, extra0=extra0)
     print(f"{name}: capture = buffer stamp {1e3 * fit['offset']:+.1f} ms + {1e3 * fit['readout']:.1f} ms x row; RMS "
-          f"{fit['rms_px']:.2f} px over {len(stamps)} frames (stamp latency median "
-          f"{1e3 * np.median(t_enc[-1] - stamps):.0f} ms behind the last encoder read)")
+          f"{fit['rms_px']:.2f} px over {len(stamps)} frames (at the target's mean row {rows_f.mean():.2f}: "
+          f"{1e3 * (fit['offset'] + fit['readout'] * rows_f.mean()):+.1f} ms, the well-determined part)")
     calib.stamp_offset, calib.readout = fit["offset"], fit["readout"]
     calib.steps["timing"] = {"date": stamp(), "frames": len(stamps), "rms_px": fit["rms_px"], "raw": raw.name}
     print("saved", calib.save())
@@ -1012,7 +1159,7 @@ def lift_from_gravity(arm: ArmCalib, overhead: CameraCalib, dets, names, enc_t, 
     return lift, f
 
 
-STATIC_X = 0.40  # m, blade centre over the bounce target
+STATIC_X = READY_X  # m, blade centre over the bounce target
 
 
 def cmd_static(args) -> int:
@@ -1057,7 +1204,7 @@ def cmd_static(args) -> int:
                     print("Blade away. Now the ball on a support (a cup, a tube) under the overhead camera, around "
                           "where the blade was, at different heights; measure from the table to the ball's top.")
                     while (ans := input("ball top above the table [cm] (blank: done): ").strip()):
-                        record(s.read().q, 1, float(ans) / 100 - BALL_RADIUS)
+                        record(s.read().q, 1, float(ans) / 100 + TABLE_Z - BALL_RADIUS)  # centre, robot frame
                         print(f"  recorded {args.seconds:.0f} s")
             finally:
                 cams.stop()
@@ -1336,9 +1483,21 @@ def main() -> int:
     p.add_argument("--refit", action="store_true", help="no arm: refit from the saved sessions")
     p = sub.add_parser("lift")
     p.add_argument("--paddle-height-cm", type=float, required=True,
-                   help="ruler: table to the paddle top face's centre at `arm_pose.py ready`")
-    p.add_argument("--offset-when-measured", type=float,
-                   help="lift offset [deg] in effect during the measurement (default: the saved one)")
+                   help="ruler: table to the paddle top face's centre, read while `arm_pose.py ready` holds the arm")
+    p = sub.add_parser("face")
+    p.add_argument("--front-cm", type=float, required=True,
+                   help="ruler: table to the blade's top surface at its front edge (the tip), during the ready hold")
+    p.add_argument("--rear-cm", type=float, required=True, help="the same at the rear edge (handle side)")
+    p.add_argument("--length-cm", type=float, required=True, help="distance along the blade between the two points")
+    p.add_argument("--left-cm", type=float, help="table to the blade's top surface at its left edge (looking along "
+                   "the arm, from the base), same hold; with --right-cm and --width-cm: corrects the wrist_roll zero")
+    p.add_argument("--right-cm", type=float, help="the same at the right edge")
+    p.add_argument("--width-cm", type=float, help="distance across the blade between those two points")
+    p = sub.add_parser("roll")
+    p.add_argument("--left-up-deg", type=float, required=True,
+                   help="turn the held blade's left edge up by this much (negative: down): balls dropped on the "
+                        "waiting blade leave toward the side that is low")
+    p.add_argument("--why", required=True, help="what the adjustment is based on (kept in arm.json)")
     p = sub.add_parser("table")
     p.add_argument("--yes", action="store_true", help="don't wait for Enter")
     p.add_argument("--refit", action="store_true", help="no camera: solve from the saved table view")
@@ -1363,16 +1522,17 @@ def main() -> int:
     p.add_argument("--fresh", action="store_true", help="analyse only the newest recording (default: pool all)")
     p = sub.add_parser("static")
     p.add_argument("--port", help="servo bus serial port (not needed with --refit)")
-    p.add_argument("--heights", type=float, nargs="+", default=[0.25, 0.28, 0.31, 0.34],
-                   help="blade face heights [m] for the ball resting on it (level blade reaches 0.055-0.355)")
+    p.add_argument("--heights", type=float, nargs="+", default=[0.28, 0.31, 0.34],
+                   help="blade face heights [m] for the ball resting on it (level blade over the bounce point: "
+                        "below 0.27 the shoulder lift nears its limit)")
     p.add_argument("--seconds", type=float, default=4.0, help="recorded per placement")
     p.add_argument("--free", action="store_true", help="then the ball on a support you measure (blade away)")
     p.add_argument("--refit", action="store_true", help="no arm: report on the newest saved recording")
     args = ap.parse_args()
     torch.set_num_threads(1)
     return {"selftest": cmd_selftest, "targets": cmd_targets, "intrinsics": cmd_intrinsics, "overhead": cmd_overhead,
-            "lift": cmd_lift, "table": cmd_table, "wrist": cmd_wrist, "timing": cmd_timing,
-            "gravity": cmd_gravity, "static": cmd_static}[args.cmd](args)
+            "lift": cmd_lift, "face": cmd_face, "roll": cmd_roll, "table": cmd_table, "wrist": cmd_wrist,
+            "timing": cmd_timing, "gravity": cmd_gravity, "static": cmd_static}[args.cmd](args)
 
 
 if __name__ == "__main__":

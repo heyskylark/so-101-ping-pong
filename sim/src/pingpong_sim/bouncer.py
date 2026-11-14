@@ -33,17 +33,17 @@ import torch
 from pingpong_sim.ball import BALL_RADIUS, DRAG_K, G
 from pingpong_sim.ball_filter import flight, flight_np
 from pingpong_sim.kinematics import ArmKinematics
-from pingpong_sim.robot import ASSETS
+from pingpong_sim.robot import ASSETS, READY_X, READY_Z
 
 TRACKING_MODEL = ASSETS / "actuators" / "tracking_model.json"  # scripts/identify_tracking.py
 
 
 @dataclass
 class BouncerCfg:
-    target_xy: tuple[float, float] = (0.40, 0.0)  # m, where the ball should land on the blade (ready pose centre)
-    hit_z: float = 0.25  # m, height of the blade face at impact
+    target_xy: tuple[float, float] = (READY_X, 0.0)  # m, where the ball should land on the blade (ready pose centre)
+    hit_z: float = READY_Z  # m, height of the blade face at impact
     apex: float = 0.25  # m, ball rise above the hitting plane
-    restitution: float = 0.58  # measured on this paddle (measurements/ball)
+    restitution: float = 0.68  # black rubber, measured on the rig (ball.py; the red side: 0.58)
     steer_gain: float = 0.7  # fraction of the landing-point error corrected per bounce
     reach: float = 0.06  # m, impact points are clipped to this radius around target_xy
     max_tilt_deg: float = 20.0
@@ -59,6 +59,21 @@ class BouncerCfg:
     predict_dt: float = 0.02  # s, RK4 flight steps (crossing time by interpolation: ~0.2 ms error)
     predict_horizon: float = 1.2  # s
     feedforward: bool = True  # invert the identified tracking model (else send the plan as the goal)
+    # Aim and stroke with shoulder_pan, wrist_flex and wrist_roll only (stroke_joint must be wrist_flex); lift and
+    # elbow hold the ready pose. The blade then tilts about the wrist instead of about its own centre, which the
+    # full-arm plan pays for with a 4 cm swing of the wrist per 10 deg of tilt. The ball is not chased along the
+    # paddle (it may land anywhere along the blade; the tilt sends it back), and sideways only by `reach` (pan).
+    wrist_only: bool = False
+    # wrist_only: carry the blade under the ball along x by up to this much [m], by shifting the hold pose (lift,
+    # elbow and wrist together: level, same height, ~0.3 deg of lift per mm) during the flight; the stroke stays
+    # the wrist's. Without it (0) a ball that drifts forward or back can only be tilted back, and an unseen lean
+    # of 2 deg walks it off the 15 cm blade in 2-3 bounces.
+    reach_x: float = 0.0
+    # Fraction of the tilt error seen after each hit (the ball's horizontal velocity against the plan) taken into
+    # a trim of the next face normals; 0 = off. The face the encoders report is not the real one: unseen droop of
+    # 1-2 deg sends every ball ~2-4 cm further forward until it leaves the blade.
+    trim_gain: float = 0.0
+    trim_max_deg: float = 5.0
 
 
 def apex_speed(h: float, g: float = G) -> float:
@@ -83,6 +98,8 @@ class ScriptedBouncer:
     def __init__(self, cfg: BouncerCfg, kin: ArmKinematics, q_ready: torch.Tensor, num_envs: int,
                  lead: torch.Tensor | None = None):
         self.cfg, self.kin = cfg, kin
+        if cfg.wrist_only and cfg.stroke_joint != 3:
+            raise ValueError("wrist_only strokes with wrist_flex: set stroke_joint=3")
         dev = q_ready.device
         self.n, self.dev = num_envs, dev
         self.q_ready = q_ready.expand(num_envs, 5).clone()
@@ -104,24 +121,70 @@ class ScriptedBouncer:
         self.a_t0, self.a_T = z - 2.0, z + 1.0
         self.a_p0, self.a_v0 = self.q_ready.clone(), torch.zeros_like(self.q_ready)
         self.q_cock, self.q_hit = self.q_ready.clone(), self.q_ready.clone()
+        self.q_rest = self.q_ready.clone()  # where the follow-through ends: ready, carried along x (cfg.reach_x)
+        # Hold poses with the blade centre shifted along x, level and at the ready height (lift, elbow and wrist
+        # together), for shifts of -reach_x .. +reach_x.
+        self.carry_table = None
+        if cfg.reach_x > 0:
+            if not cfg.wrist_only:
+                raise ValueError("reach_x is for wrist_only (the full-arm plan reaches with `reach`)")
+            s = torch.linspace(-cfg.reach_x, cfg.reach_x, 17, device=dev)
+            face, normal, _, _ = kin.fk(self.q_ready[:1])
+            target = face.expand(len(s), 3).clone()
+            target[:, 0] += s
+            q, err = kin.ik(target, normal.expand(len(s), 3), self.q_ready[:1].expand(len(s), 5), iters=30)
+            if float(err.max()) > 1e-3:
+                raise ValueError(f"reach_x {cfg.reach_x} m: the arm can't hold the blade level that far "
+                                 f"(off by {1e3 * float(err.max()):.1f} mm)")
+            self.carry_table = q
         self.Ts = Ts
         # Logged per world at each plan update (last plan wins).
         self.plan_speed = z.clone()  # paddle speed along the normal at impact [m/s]
         self.plan_tilt = z.clone()  # face tilt from vertical [rad]
         self.plan_ik_err = z.clone()  # m
+        # Tilt trim (cfg.trim_gain): face normal x, y offsets [rad] learned from where the hits send the ball.
+        z2 = torch.zeros(num_envs, 2, device=dev)
+        self.trim, self.trim_base = z2.clone(), z2.clone()
+        self.vout_plan, self.last_vout = z2.clone(), z2.clone()  # planned outgoing horizontal velocity: plan, last hit
+        self.dv_plan, self.last_dv = z + 1.0, z + 1.0  # |v_out - v_in| of the plan and of the last hit [m/s]
+        self.armed = torch.zeros(num_envs, dtype=torch.bool, device=dev)  # a plan was made since the reset
+        self.judging = self.armed.clone()  # this flight follows a planned hit
+
+    def _carry(self, dx: torch.Tensor) -> torch.Tensor:
+        """Hold pose (B, 5) with the blade centre dx (B,) along x from the ready pose's (clipped to reach_x)."""
+        if self.carry_table is None:
+            return self.q_ready
+        last = len(self.carry_table) - 1
+        r = self.cfg.reach_x
+        u = (dx.clamp(-r, r) + r) / (2 * r) * last
+        i = u.floor().clamp(0, last - 1).long()
+        w = (u - i)[:, None]
+        return self.carry_table[i] * (1 - w) + self.carry_table[i + 1] * w
 
     def set_gravity(self, env_ids: torch.Tensor, g: torch.Tensor) -> None:
         """The gravity env_ids' predictions and plans assume (B_ids,)."""
         self.g[env_ids] = g
         self.vz_out[env_ids] = torch.sqrt(g / DRAG_K * (math.exp(2 * DRAG_K * self.cfg.apex) - 1))
 
-    def reset(self, env_ids: torch.Tensor, now: float) -> None:
-        """Drop the plans of env_ids: hold the ready pose until the next plan (episode reset at time `now`)."""
-        self.t_hit[env_ids] = now - 1.0
+    def reset(self, env_ids: torch.Tensor, now: float, keep_trim: bool = False) -> None:
+        """Drop the plans of env_ids: hold the ready pose until the next plan (episode reset at time `now`).
+        `keep_trim`: the same arm goes on (the rig, after a lost ball): what it learned of its tilt stays, and it
+        returns to ready from where the rally left it as after a hit, not in one step."""
+        if keep_trim:
+            q_now, _, _ = self.evaluate(torch.full_like(self.t_hit, now) + self.lead)
+            start, t_hit = q_now[env_ids], now
+        else:
+            self.trim[env_ids] = 0.0
+            start, t_hit = self.q_ready[env_ids], now - 1.0
+        self.armed[env_ids] = False
+        self.judging[env_ids] = False
+        self.t_hit[env_ids] = t_hit
         self.a_t0[env_ids] = now - 2.0
         self.a_T[env_ids] = 1.0
-        for buf in (self.a_p0, self.q_cock, self.q_hit):
-            buf[env_ids] = self.q_ready[env_ids]
+        self.a_p0[env_ids] = self.q_ready[env_ids]
+        self.q_cock[env_ids] = start
+        self.q_hit[env_ids] = start
+        self.q_rest[env_ids] = self.q_ready[env_ids]
         self.a_v0[env_ids] = 0.0
         self.plan_speed[env_ids] = 0.0
         self.plan_tilt[env_ids] = 0.0
@@ -137,7 +200,7 @@ class ScriptedBouncer:
         dq = self.q_hit - self.q_cock
         ps, vs, as_ = self.q_cock + dq * (tau / Ts) ** 2, dq * 2 * tau / Ts**2, dq * 2 / Ts**2
         qd_hit = dq * 2 / Ts
-        pf, vf, af = hermite(t, self.t_hit, torch.full_like(t, self.cfg.follow), self.q_hit, qd_hit, self.q_ready, zero)
+        pf, vf, af = hermite(t, self.t_hit, torch.full_like(t, self.cfg.follow), self.q_hit, qd_hit, self.q_rest, zero)
         approach, stroke = (t < t_s0)[:, None], (t < self.t_hit)[:, None]
         pick = lambda a, s, f: torch.where(approach, a, torch.where(stroke, s, f))  # noqa: E731
         return pick(pa, ps, pf), pick(va, vs, vf), pick(aa, as_.expand_as(aa), af)
@@ -204,16 +267,13 @@ class ScriptedBouncer:
         replan = (torch.isfinite(dt_hit) & (approaching | recovered)
                   & (t_hit - self.Ts - t_cmd > cfg.min_approach))
         if replan.any():
-            self._plan(replan, t_cmd, q_c, qd_c, t_hit, p_in, v_in)
+            self._plan(replan, recovered, t_cmd, q_c, qd_c, t_hit, p_in, v_in)
         return self.goal(*self.evaluate(t_cmd))
 
-    def _plan(self, m, t_cmd, q_c, qd_c, t_hit, p_in, v_in) -> None:
+    def _aim(self, xy: torch.Tensor, v_in: torch.Tensor):
+        """Outgoing velocity for an impact at xy (up to the apex, back toward the target), and the face normal that
+        gives it (tilt capped): v_out (B, 3), n (B, 3), tilt (B,)."""
         cfg = self.cfg
-        # Impact point, clipped to the reachable patch.
-        d = p_in[:, :2] - self.target
-        r = d.norm(dim=1, keepdim=True).clamp_min(1e-9)
-        xy = self.target + d * (cfg.reach / r).clamp(max=1.0)
-        # Outgoing velocity: up to the apex, back toward the target.
         v_out = torch.zeros_like(v_in)
         v_out[:, :2] = cfg.steer_gain * (self.target - xy) / (2 * self.vz_out / self.g)[:, None]
         v_out[:, 2] = self.vz_out
@@ -227,26 +287,84 @@ class ScriptedBouncer:
             capped = torch.cat([h * math.sin(max_tilt), torch.full_like(n[:, 2:], math.cos(max_tilt))], dim=1)
             n = torch.where(too_far[:, None], capped, n)
             tilt = tilt.clamp(max=max_tilt)
+        n = n + torch.cat([self.trim, torch.zeros_like(n[:, 2:])], dim=1)
+        n = n / n.norm(dim=1, keepdim=True)
+        return v_out, n, tilt
+
+    def _plan(self, m, fresh, t_cmd, q_c, qd_c, t_hit, p_in, v_in) -> None:
+        cfg = self.cfg
         e = cfg.restitution
+        j = cfg.stroke_joint
+        if cfg.trim_gain > 0:
+            # The first plan after a hit is for a new flight: its horizontal velocity is what that hit really gave
+            # the ball. What it has beyond the plan is a tilt of the face the encoders don't show (droop under the
+            # paddle's weight, a calibration offset): lean the next normals against it. Refined with the estimate
+            # until the plan locks, from the trim as it was at the hit.
+            new = m & fresh & self.armed & (t_cmd - self.t_hit < 0.6)
+            self.trim_base = torch.where(new[:, None], self.trim, self.trim_base)
+            self.last_vout = torch.where(new[:, None], self.vout_plan, self.last_vout)
+            self.last_dv = torch.where(new, self.dv_plan, self.last_dv)
+            self.judging = (self.judging | new) & ~(m & fresh & ~new)
+            lim = math.radians(cfg.trim_max_deg)
+            trim = (self.trim_base - cfg.trim_gain * (v_in[:, :2] - self.last_vout) / self.last_dv[:, None]).clamp(-lim, lim)
+            self.trim = torch.where((m & self.judging)[:, None], trim, self.trim)
+        if cfg.wrist_only:
+            # The face turns about the wrist, so its height under the ball depends on the tilt and on where along
+            # the blade the ball lands: find the time the ball reaches the tilted face (two rounds; the ball's
+            # path around the plane crossing is a parabola).
+            q_hit = self.q_ready.clone()
+            q_rest = q_hit
+            tau = torch.zeros_like(t_hit)
+            for _ in range(2):
+                p = p_in + v_in * tau[:, None]
+                p[:, 2] -= 0.5 * self.g * tau**2
+                v = v_in.clone()
+                v[:, 2] -= self.g * tau
+                v_out, n, tilt = self._aim(p[:, :2], v)
+                y = self.target[1] + (p[:, 1] - self.target[1]).clamp(-cfg.reach, cfg.reach)
+                q_rest = self._carry(p[:, 0] - self.target[0])
+                q0 = q_hit.clone()  # pan, wrist and roll go on from the last round
+                q0[:, 1:3] = q_rest[:, 1:3]
+                q_hit = self.kin.aim(n, y, q0)
+                face_h, n, origins, axes = self.kin.fk(q_hit)
+                gap = ((p - face_h) * n).sum(1) - BALL_RADIUS
+                tau = (tau - gap / (v * n).sum(1).clamp(max=-0.2)).clamp(-0.08, 0.08)
+            p = p_in + v_in * tau[:, None]
+            p[:, 2] -= 0.5 * self.g * tau**2
+            v_in = v_in.clone()
+            v_in[:, 2] -= self.g * tau
+            t_hit = t_hit + tau
+            contact = p - BALL_RADIUS * n
+            err = (((p - face_h) * n).sum(1) - BALL_RADIUS).abs()
+        else:
+            # Impact point, clipped to the reachable patch.
+            d = p_in[:, :2] - self.target
+            r = d.norm(dim=1, keepdim=True).clamp_min(1e-9)
+            xy = self.target + d * (cfg.reach / r).clamp(max=1.0)
+            v_out, n, tilt = self._aim(xy, v_in)
+            face = torch.cat([xy, torch.full_like(xy[:, :1], self.z_ball)], dim=1) - BALL_RADIUS * n
+            q_hit, err = self.kin.ik(face, n, q_c, iters=6)
+            contact, _, origins, axes = self.kin.fk(q_hit)
+            q_rest = self.q_ready
         speed = ((v_out * n).sum(1) + e * (v_in * n).sum(1)) / (1 + e)
-        face = torch.cat([xy, torch.full_like(xy[:, :1], self.z_ball)], dim=1) - BALL_RADIUS * n
-        q_hit, err = self.kin.ik(face, n, q_c, iters=6)
         # Single-joint stroke: joint displacement giving `stroke` metres of face travel along n at the impact pose.
         stroke = speed * self.Ts / 2
-        face_h, _, origins, axes = self.kin.fk(q_hit)
-        j = cfg.stroke_joint
-        lever = (torch.cross(axes[:, j], face_h - origins[:, j], dim=1) * n).sum(1)  # m of face motion per rad
+        lever = (torch.cross(axes[:, j], contact - origins[:, j], dim=1) * n).sum(1)  # m of face motion per rad
         sign = torch.where(lever < 0, -1.0, 1.0)
         lever = sign * lever.abs().clamp_min(0.05)  # guard against a stroke joint that barely moves the face
         q_cock = q_hit.clone()
         q_cock[:, j] = q_hit[:, j] - stroke / lever
         mk = m[:, None]
+        self.vout_plan = torch.where(mk, v_out[:, :2], self.vout_plan)
+        self.dv_plan = torch.where(m, (v_out - v_in).norm(dim=1), self.dv_plan)
+        self.armed |= m
         self.a_t0 = torch.where(m, t_cmd, self.a_t0)
-        self.a_T = torch.where(m, t_hit - self.Ts - t_cmd, self.a_T)
+        self.a_T = torch.where(m, (t_hit - self.Ts - t_cmd).clamp_min(cfg.min_approach / 2), self.a_T)
         self.a_p0 = torch.where(mk, q_c, self.a_p0)
         self.a_v0 = torch.where(mk, qd_c, self.a_v0)
         self.q_cock = torch.where(mk, q_cock, self.q_cock)
         self.q_hit = torch.where(mk, q_hit, self.q_hit)
+        self.q_rest = torch.where(mk, q_rest, self.q_rest)
         self.t_hit = torch.where(m, t_hit, self.t_hit)
         self.plan_speed = torch.where(m, speed, self.plan_speed)
         self.plan_tilt = torch.where(m, tilt, self.plan_tilt)
