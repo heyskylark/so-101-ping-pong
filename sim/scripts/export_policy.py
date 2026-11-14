@@ -90,8 +90,11 @@ def main() -> None:
             "scale": arm_cfg.scale,
             "clip": arm_cfg.clip,
             "residual": arm_cfg.residual,
+            "max_rate": arm_cfg.max_rate,  # rad/s per joint, or null: how fast a goal may move
             "goal": ("clip(bouncer_goal + scale * clip(action, -clip, clip), joint_lower, joint_upper)" if arm_cfg.residual
-                     else "clip(q_ready + scale * clip(action, -clip, clip), joint_lower, joint_upper)"),
+                     else "clip(q_ready + scale * clip(action, -clip, clip), joint_lower, joint_upper)")
+                    + ("; then at most max_rate x control_dt from the last goal (from the encoders after a reset)"
+                       if arm_cfg.max_rate is not None else ""),
         },
         "observation": {
             "dim": int(x.shape[1]),

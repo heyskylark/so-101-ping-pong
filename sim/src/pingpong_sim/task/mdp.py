@@ -17,7 +17,7 @@ from mjlab.managers.event_manager import requires_model_fields
 
 from pingpong_sim.controller import BounceController
 from pingpong_sim.robot import ARM_JOINTS, joint_inertia
-from pingpong_sim.servo_actuator import encoder_vel, servo_model
+from pingpong_sim.servo_actuator import encoder_pos, encoder_vel, servo_model
 from pingpong_sim.task.state import PingPongState, TaskCfg, get
 
 __all__ = ["TaskCfg"]
@@ -122,12 +122,13 @@ def push_ball(env, env_ids, dv: float) -> None:
 @dataclass(kw_only=True)
 class BounceActionCfg(ActionTermCfg):
     """Servo goals for the 5 arm joints: `base + scale * clip(action)`, base = the scripted bouncer's goal (residual)
-    or the ready pose (direct). Goals are clipped to the joint limits."""
+    or the ready pose (direct). Goals are clipped to the joint limits and, with `max_rate`, move at most that fast."""
 
     entity_name: str = "robot"
     scale: float | tuple[float, ...] = 0.1  # rad per unit action (one value, or one per joint)
     clip: float | None = None  # raw actions are clipped to +-clip before scaling (bounds what the policy can add)
     residual: bool = True
+    max_rate: float | tuple[float, ...] | None = None  # rad/s, how fast a goal may move (the rig's --goal-rate)
 
     def build(self, env) -> BounceAction:
         return BounceAction(self, env)
@@ -141,8 +142,13 @@ class BounceAction(ActionTerm):
         ids, _ = self._entity.find_joints(ARM_JOINTS, preserve_order=True)
         self._ids = torch.tensor(ids, device=self.device)
         self._raw = torch.zeros(self.num_envs, 5, device=self.device)
+        self._prev = torch.zeros(self.num_envs, 5, device=self.device)
+        self.accel = torch.zeros(self.num_envs, 5, device=self.device)
         self._goal = torch.zeros(self.num_envs, 5, device=self.device)
         self._scale = torch.as_tensor(cfg.scale, dtype=torch.float32, device=self.device).expand(5)
+        self._fresh = torch.ones(self.num_envs, dtype=torch.bool, device=self.device)
+        self._step = None if cfg.max_rate is None else \
+            torch.as_tensor(cfg.max_rate, dtype=torch.float32, device=self.device).expand(5) * env.step_dt
 
     @property
     def action_dim(self) -> int:
@@ -155,15 +161,25 @@ class BounceAction(ActionTerm):
     def process_actions(self, actions: torch.Tensor) -> None:
         st = get(self._env)
         st.update()  # normally done by the last observation already
+        self.accel = actions - 2 * self._raw + self._prev  # second difference of the raw actions (a jerky policy)
+        self._prev = self._raw.clone()
         self._raw[:] = actions
         a = actions if self.cfg.clip is None else actions.clamp(-self.cfg.clip, self.cfg.clip)
-        self._goal = torch.clamp(st.ctrl.goal_base() + self._scale * a, st.kin.lo, st.kin.hi)
+        goal = torch.clamp(st.ctrl.goal_base() + self._scale * a, st.kin.lo, st.kin.hi)
+        if self._step is not None:
+            # From where the arm is after a reset, then from the last goal: at most max_rate x dt per step.
+            last = torch.where(self._fresh[:, None], encoder_pos(self._entity), self._goal)
+            goal = torch.minimum(torch.maximum(goal, last - self._step), last + self._step)
+            self._fresh[:] = False
+        self._goal = goal
 
     def apply_actions(self) -> None:
         self._entity.set_joint_position_target(self._goal, joint_ids=self._ids)
 
     def reset(self, env_ids=None) -> None:
         self._raw[env_ids] = 0.0
+        self._prev[env_ids] = 0.0
+        self._fresh[env_ids] = True
 
 
 # -- observations (actor) ------------------------------------------------------------------------------------------
@@ -312,8 +328,15 @@ def action_l2(env) -> torch.Tensor:
     return (env.action_manager.action ** 2).sum(-1)
 
 
-def joint_vel_l2(env) -> torch.Tensor:
-    return (encoder_vel(get(env).robot) ** 2).sum(-1)
+def action_accel_l2(env) -> torch.Tensor:
+    """Squared second difference of the raw actions (a_t - 2 a_t-1 + a_t-2): a goal that jerks."""
+    return (env.action_manager.get_term("arm").accel ** 2).sum(-1)
+
+
+def joint_vel_l2(env, weights: tuple[float, ...] | None = None) -> torch.Tensor:
+    """Squared encoder velocities, optionally weighted per joint (the lift and elbow gears wear first)."""
+    v2 = encoder_vel(get(env).robot) ** 2
+    return v2.sum(-1) if weights is None else (v2 * torch.tensor(weights, device=v2.device)).sum(-1)
 
 
 # -- terminations --------------------------------------------------------------------------------------------------

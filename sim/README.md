@@ -30,6 +30,7 @@ uv run scripts/train.py PingPong-Bounce-Gentle --env.scene.num-envs 4096        
 uv run scripts/train.py PingPong-Bounce-Gentle-Memory --env.scene.num-envs 4096  # the same + the policy sees what this rally's bounces did vs predicted (BounceMemory) -> pingpong_gentle_memory/
 uv run scripts/train.py PingPong-Bounce-Gentle-Carry --env.scene.num-envs 4096   # gentle + the bouncer carries the blade under the ball forward and back (lift, elbow, wrist; +-4 cm) -> pingpong_gentle_carry/
 uv run scripts/train.py PingPong-Bounce-Gentle-Lead --env.scene.num-envs 4096    # memory task + the policy may move twice as far from the bouncer's goal and is paid for the ball's energy every step (short hops, a dead ball) -> pingpong_gentle_lead/
+uv run scripts/train.py PingPong-Bounce-Solo --env.scene.num-envs 4096           # no scripted bouncer: the policy's actions are the servo goals (rate-limited, smoothness in stages), in the real arm's sim -> pingpong_solo/
 uv run scripts/warm_start.py <model.pt> --from-task PingPong-Bounce-Gentle --task PingPong-Bounce-Gentle-Memory --name <run>  # start a task with more observation terms from a trained policy; then train.py ... --agent.resume True --agent.load-run <run> --agent.load-checkpoint model_0.pt
 uv run scripts/eval_task.py --checkpoint logs/rsl_rl/pingpong_residual/<run>/model_<n>.pt   # + bounce quality, residual size, timing
 uv run scripts/play.py PingPong-Bounce-Residual --checkpoint-file <model.pt>     # interactive viewer

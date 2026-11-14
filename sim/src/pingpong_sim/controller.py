@@ -368,6 +368,10 @@ class OnnxPolicy:
             raise ValueError("policy and controller disagree on the residual (scripted bouncer) mode")
         self.scale = torch.as_tensor(act["scale"], dtype=torch.float32, device=ctrl.dev)  # one value or per joint
         self.clip = act.get("clip")
+        rate = act.get("max_rate")  # rad/s per joint: the goal moves at most this fast (None: unlimited)
+        self.step = None if rate is None else \
+            torch.as_tensor(rate, dtype=torch.float32, device=ctrl.dev) * float(self.spec["control_dt"])
+        self.last_goal = None
         self.lo = torch.tensor(self.spec["joint_lower"], device=ctrl.dev)
         self.hi = torch.tensor(self.spec["joint_upper"], device=ctrl.dev)
         self.hist = {t["name"]: np.zeros((t["history"], t["dim"]), dtype=np.float32) for t in self.terms}
@@ -376,6 +380,7 @@ class OnnxPolicy:
 
     def reset(self) -> None:
         self.last_action[:] = 0.0
+        self.last_goal = None
         self._fresh = True  # histories fill with the first frame, as mjlab's history buffers do after a reset
 
     def observation(self) -> np.ndarray:
@@ -402,4 +407,9 @@ class OnnxPolicy:
         a = torch.as_tensor(a, device=self.ctrl.dev)
         if self.clip is not None:
             a = a.clamp(-self.clip, self.clip)
-        return torch.clamp(base + self.scale * a, self.lo, self.hi)
+        goal = torch.clamp(base + self.scale * a, self.lo, self.hi)
+        if self.step is not None:  # as the training env's action term: from the encoders after a reset
+            last = self.ctrl.q_enc if self.last_goal is None else self.last_goal
+            goal = torch.minimum(torch.maximum(goal, last - self.step), last + self.step)
+            self.last_goal = goal
+        return goal

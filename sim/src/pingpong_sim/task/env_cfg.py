@@ -5,11 +5,13 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import replace
 
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs import mdp as mj_mdp
 from mjlab.envs.mdp import dr
+from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.event_manager import EventTermCfg
 from mjlab.managers.metrics_manager import MetricsTermCfg
 from mjlab.managers.observation_manager import ObservationGroupCfg, ObservationTermCfg
@@ -32,11 +34,13 @@ from pingpong_sim.task.state import TaskCfg
 
 CONTROL_DT = 0.01
 DECIMATION = round(CONTROL_DT / SIM_DT)
+# deg/s per joint: how fast run_robot.py lets a servo goal move on the rig (--goal-rate), and the solo task's goals.
+SOLO_GOAL_RATE = (400.0, 200.0, 300.0, 860.0, 600.0)
 
 
 def make_env_cfg(residual: bool = True, play: bool = False, stroke_joint: str = "elbow_flex",
                  gentle: bool = False, memory: bool = False, carry: bool = False,
-                 lead: bool = False, rough: bool = False) -> ManagerBasedRlEnvCfg:
+                 lead: bool = False, rough: bool = False, solo: bool = False) -> ManagerBasedRlEnvCfg:
     """`residual`: actions correct the scripted bouncer's goal (else: offsets from the ready pose). `stroke_joint`:
     the one joint the scripted bouncer strokes with (the elbow, or the wrist: a third of the inertia to swing).
     `gentle` (residual): the bouncer aims and strokes with the pan and the wrist only while lift and elbow hold
@@ -46,9 +50,19 @@ def make_env_cfg(residual: bool = True, play: bool = False, stroke_joint: str = 
     critic the joint zeros' true errors. `carry` (gentle): the bouncer also shifts its hold pose along x under the
     ball (BouncerCfg.reach_x). `lead` (gentle): the policy may move twice as far from the bouncer's goal and is
     paid for the ball's energy at every step, to hit where the bouncer plans nothing. `rough` (gentle): every bounce
-    has its own restitution."""
+    has its own restitution. `solo`: no bouncer at all: the policy's actions are the servo goals (offsets from the
+    ready pose, rate-limited as on the rig), in the gentle task's arm and cameras with the rough bounces, paid for
+    the ball's energy and charged for jerky goals and fast joints."""
+    if solo:
+        # No bouncer; the real arm's sim with everything learned about it; a new restitution per bounce. Not the
+        # bounce memory: trained from scratch its inputs are zero until rallies happen and the observation
+        # normalizer then feeds the first records in at 100 sigma (the 2026-11-13 memory run); it can be added to
+        # a trained policy with scripts/warm_start.py.
+        residual, gentle, rough = False, True, True
     task = TaskCfg(use_bouncer=residual)
     task.bouncer = replace(task.bouncer, stroke_joint=ARM_JOINTS.index(stroke_joint))
+    if solo:
+        task.drop_offset = 0.04  # hand drops on the rig land -27..+34 mm along the blade, -45..0 mm across
     if gentle:
         # No tilt trim: on the rig it chased mistimed hits; the policy corrects instead. The bouncer and the filter
         # believe the restitution measured on the arm.
@@ -92,14 +106,21 @@ def make_env_cfg(residual: bool = True, play: bool = False, stroke_joint: str = 
         "mismatch": ObservationTermCfg(func=mdp.mismatch),
         "launch": ObservationTermCfg(func=mdp.launch_state),
     }
-    if memory:
+    if memory or solo:
         critic_terms["zero_error"] = ObservationTermCfg(func=mdp.zero_error)
     observations = {
         "actor": ObservationGroupCfg(actor_terms(noisy=True), enable_corruption=True),
         "critic": ObservationGroupCfg(critic_terms, enable_corruption=False),
     }
 
-    if gentle:
+    if solo:
+        # The whole goal is the policy's: offsets from the ready pose up to +-26 deg on the pan, +-12 deg on the
+        # lift, +-15 deg on the elbow, +-34 deg on the wrist and +-17 deg on the roll (the lift's range moves the
+        # level blade +-4 cm; the full-arm bouncer's 40-70 deg swings wore out two servos), and no faster than the
+        # rig's --goal-rate lets a goal move.
+        actions = {"arm": mdp.BounceActionCfg(scale=(0.15, 0.07, 0.09, 0.2, 0.1), clip=3.0, residual=False,
+                                              max_rate=tuple(math.radians(r) for r in SOLO_GOAL_RATE))}
+    elif gentle:
         # Small, capped corrections: at most +-5.7 deg on the pan, +-3.4 deg on lift and elbow, +-11.5 deg on the
         # wrist joints, so the policy can't bring the big swings back. `lead`: twice that (+-23 deg on the wrist:
         # +-10 cm at the blade centre, a stroke of its own); the raw action keeps its meaning, so a policy trained
@@ -188,6 +209,26 @@ def make_env_cfg(residual: bool = True, play: bool = False, stroke_joint: str = 
         # planner's goal costs a fifth of what it did.
         rewards["ball_energy"] = RewardTermCfg(func=mdp.ball_energy, weight=0.02, params={"radius": 0.075})
         rewards["action"] = RewardTermCfg(func=mdp.action_l2, weight=-0.001)
+    curriculum = {}
+    if solo:
+        # Without a scripted stroke the ball's energy is the only reward a first passive bounce can lead on from.
+        # Smooth: a jerking goal and fast joints cost, the lift and the elbow (whose gears wear first, and which
+        # carry the arm) four times the wrist. The cost comes in three stages (iterations 0, 1200, 2400 at 32 steps
+        # each): charged in full from the start, a policy that can't juggle yet learns to hold still (random
+        # actions cost 2.7 per second at the last stage's weight, the ball's energy pays at most 2). At the last
+        # stage a wrist stroke per bounce costs ~3 % of what steady target bounces pay, a lift moving at 30 deg/s
+        # as much again.
+        rewards["ball_energy"] = RewardTermCfg(func=mdp.ball_energy, weight=0.02, params={"radius": 0.075})
+        rewards["action_accel"] = RewardTermCfg(func=mdp.action_accel_l2, weight=-0.0005)
+        rewards["joint_vel"] = RewardTermCfg(func=mdp.joint_vel_l2, weight=-0.0002,
+                                             params={"weights": (1.0, 4.0, 4.0, 1.0, 1.0)})
+        stage = lambda *w: [{"step": 32 * it, "weight": x} for it, x in zip((0, 1200, 2400), w)]  # noqa: E731
+        curriculum = {
+            "smooth_goals": CurriculumTermCfg(func=mj_mdp.reward_curriculum, params={
+                "reward_name": "action_accel", "stages": stage(-0.0005, -0.002, -0.005)}),
+            "slow_joints": CurriculumTermCfg(func=mj_mdp.reward_curriculum, params={
+                "reward_name": "joint_vel", "stages": stage(-0.0002, -0.001, -0.003)}),
+        }
 
     terminations = {
         "time_out": TerminationTermCfg(func=mj_mdp.time_out, time_out=True),
@@ -234,19 +275,23 @@ def make_env_cfg(residual: bool = True, play: bool = False, stroke_joint: str = 
         episode_length_s=20.0,
         scale_rewards_by_dt=False,
     )
+    if solo:
+        cfg.curriculum = curriculum
     if play:
         cfg.scene = replace(cfg.scene, num_envs=16)
     return cfg
 
 
-def make_ppo_cfg(residual: bool = True, experiment_name: str | None = None) -> RslRlOnPolicyRunnerCfg:
+def make_ppo_cfg(residual: bool = True, experiment_name: str | None = None,
+                 init_std: float | None = None) -> RslRlOnPolicyRunnerCfg:
     return RslRlOnPolicyRunnerCfg(
         actor=RslRlModelCfg(
             hidden_dims=(256, 256, 128),
             activation="elu",
             obs_normalization=True,
             # Residual: start close to the scripted bouncer (0.3 x 0.1 rad exploration noise).
-            distribution_cfg={"class_name": "GaussianDistribution", "init_std": 0.3 if residual else 0.5,
+            distribution_cfg={"class_name": "GaussianDistribution",
+                              "init_std": init_std if init_std is not None else (0.3 if residual else 0.5),
                               "std_type": "scalar"},
         ),
         critic=RslRlModelCfg(hidden_dims=(256, 256, 128), activation="elu", obs_normalization=True),

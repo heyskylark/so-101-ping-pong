@@ -420,6 +420,9 @@ def main() -> int:
         task_id = spec["task_id"]
         if args.task and args.task != task_id:
             raise SystemExit(f"--task: the policy was trained on {task_id}")
+        rate = spec["action"].get("max_rate")
+        if rate is not None and args.goal_rate is None:  # the policy was trained with its goals moving this fast
+            args.goal_rate = np.degrees(np.broadcast_to(rate, 5)).round(1).tolist()
         if np.abs(np.array(spec["q_ready"]) - [READY_JOINT_POS[j] for j in JOINTS]).max() > 1e-3:
             raise SystemExit(f"{policy_dir} was trained at another ready pose "
                              f"({np.degrees(spec['q_ready']).round(1)} deg): retrain at the current one")

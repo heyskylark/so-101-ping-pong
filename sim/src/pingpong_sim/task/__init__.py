@@ -12,6 +12,8 @@
   paid for the ball's energy at every step: it is to hit where the bouncer plans nothing (short hops, a dead ball).
 - `PingPong-Bounce-Gentle-Rough`: the lead task with a new restitution for every bounce, so the next impact can't be
   timed from the last one (on the rig the committed hit time is off by -41..+38 ms).
+- `PingPong-Bounce-Solo`: no scripted bouncer: the policy's actions are the servo goals, in the real arm's sim (gear
+  play, link flex, zero errors, wrist camera, a new restitution every bounce), rate-limited and charged for jerk.
 - `PingPong-Bounce-Direct`: actions are servo goals relative to the ready pose (comparison).
 """
 
@@ -60,6 +62,12 @@ register_mjlab_task(
     env_cfg=make_env_cfg(gentle=True, memory=True, lead=True, rough=True),
     play_env_cfg=make_env_cfg(gentle=True, memory=True, lead=True, rough=True, play=True),
     rl_cfg=make_ppo_cfg(residual=True, experiment_name="pingpong_gentle_rough"),
+)
+register_mjlab_task(
+    task_id="PingPong-Bounce-Solo",
+    env_cfg=make_env_cfg(solo=True),
+    play_env_cfg=make_env_cfg(solo=True, play=True),
+    rl_cfg=make_ppo_cfg(residual=False, experiment_name="pingpong_solo", init_std=0.3),
 )
 register_mjlab_task(
     task_id="PingPong-Bounce-Direct",

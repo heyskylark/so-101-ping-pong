@@ -1115,9 +1115,32 @@ drifting** parameters (this paddle's restitution, latency, backlash, sag), which
              bounces or runs long), and the rough world still costs a third of the bounces. Three 60 s runs
              each at the rig-like arm, bounces per drop, lead / rough: restitution drawn in 0.10–0.25 4.3 /
              12.6, in 0.08–0.30 8.8 / 3.6: one arm per run, and the arm decides more than the policy.
-         - Next: rig runs of `gentle_lead_v1` and `gentle_rough_v1` on the tight holder, with a 240 fps video.
-           A fix that keeps the holder tight. Open: a shorter commitment (stroke time, lock); the
-           restitution's fall with speed; hitting the first bounce.
+           - Training curves, means over blocks of 250 iterations: the rough run flat at ~9.2 bounces per
+             episode over its last 1000 iterations; the lead run still rising when it ended (9.2, 9.6, 10.3 in
+             its last three blocks, std 0.07), continued from its last checkpoint to iteration 3499 from 01:21
+             2026-11-14 (`logs/rsl_rl/pingpong_gentle_lead/2026-11-14_01-21-08`,
+             `build/analysis/train_gentle_lead_v2.log`).
+           - **Rig, holder tight, 2026-11-14** (bounces per drop; first stroked hits followed / all):
+             `gentle_rough_v1` (`_012654`) 5 5 3 4 4 1 1 3 3 2 3 2, mean 3.0, 7 / 8; `gentle_lead_v1`
+             (`_012830`) mean 1.6 (best 5), 11 of 19 drops lost at the unhit first bounce, 1 / 3, ends off the
+             front 10. For comparison `gentle_v3` 3.1, `gentle_memory_v1` 2.5 (2026-11-13 20:37–20:40).
+           - **Solo task** (user, 2026-11-14: a model that controls the arm by itself, without the script, learns
+             its posing, juggles well and moves smoothly, in a sim of this arm with everything learned about
+             it). `PingPong-Bounce-Solo`: no bouncer (`use_bouncer` off; the "bouncer" observation is gone, the
+             impact prediction, a ballistic one, stays); the action is the servo goal, an offset from the
+             ready pose up to ±26° pan, ±12° lift, ±15° elbow, ±34° wrist flex, ±17° roll, moving no faster
+             than the rig's `--goal-rate` (400 200 300 860 600 deg/s; `BounceActionCfg.max_rate`, in
+             policy.json and applied by `OnnxPolicy`; `run_robot.py` takes it as its default). The gentle
+             task's arm (play, flex, zero errors, P 32), wrist camera, drops at ±4 cm, a new restitution every
+             bounce. Rewards: the bounce terms, the ball's energy (0.02), a jerking goal (`action_accel`) and
+             fast joints (`joint_vel`, lift and elbow four times the wrist) in three stages (iterations 0,
+             1200, 2400: −0.0005/−0.002/−0.005 and −0.0002/−0.001/−0.003; charged in full from the start a
+             policy that can't juggle yet would learn to hold still). No bounce memory: from scratch the
+             normalizer blows its first records up; `warm_start.py` can add it later. Two seeds from scratch,
+             3600 iterations each from ~02:35 (`build/analysis/train_solo_v1_a.log`, `_b.log`).
+         - Next: evaluate the lead continuation (~04:10) and the solo runs (~09:30) in sim; rig runs with a 240
+           fps video. A fix that keeps the holder tight. Open: a shorter commitment (stroke time, lock) for the
+           bouncer tasks; the restitution's fall with speed; hitting the first bounce.
 
 ## Decisions
 
