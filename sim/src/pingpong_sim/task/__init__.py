@@ -14,6 +14,8 @@
   timed from the last one (on the rig the committed hit time is off by -41..+38 ms).
 - `PingPong-Bounce-Solo`: no scripted bouncer: the policy's actions are the servo goals, in the real arm's sim (gear
   play, link flex, zero errors, wrist camera, a new restitution every bounce), rate-limited and charged for jerk.
+- `PingPong-Bounce-Solo-Wobble`: the solo task with the wrist camera's detections as poor as the rig's (bearings
+  scattering by degrees, sizes by 5 %) and a ball filter that is told so.
 - `PingPong-Bounce-Direct`: actions are servo goals relative to the ready pose (comparison).
 """
 
@@ -68,6 +70,12 @@ register_mjlab_task(
     env_cfg=make_env_cfg(solo=True),
     play_env_cfg=make_env_cfg(solo=True, play=True),
     rl_cfg=make_ppo_cfg(residual=False, experiment_name="pingpong_solo", init_std=0.3),
+)
+register_mjlab_task(
+    task_id="PingPong-Bounce-Solo-Wobble",
+    env_cfg=make_env_cfg(solo=True, wobble=True),
+    play_env_cfg=make_env_cfg(solo=True, wobble=True, play=True),
+    rl_cfg=make_ppo_cfg(residual=False, experiment_name="pingpong_solo_wobble", init_std=0.3),
 )
 register_mjlab_task(
     task_id="PingPong-Bounce-Direct",

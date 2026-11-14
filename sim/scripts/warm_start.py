@@ -126,7 +126,9 @@ def main() -> None:
     out = LOGS / rl_cfg.experiment_name / args.name
     out.mkdir(parents=True, exist_ok=True)
     saved = runner.alg.save()  # a fresh optimizer: the old one's moments belong to the old network
-    saved["iter"], saved["infos"] = 0, {"env_state": {"common_step_counter": 0}}
+    # The env's step counter goes on (reward curricula are staged on it; the iteration count starts again).
+    steps = ((src.get("infos") or {}).get("env_state") or {}).get("common_step_counter", 0)
+    saved["iter"], saved["infos"] = 0, {"env_state": {"common_step_counter": steps}}
     torch.save(saved, out / "model_0.pt")
     print("saved", out / "model_0.pt")
     env.close()

@@ -1170,10 +1170,48 @@ drifting** parameters (this paddle's restitution, latency, backlash, sag), which
                wrist −13.8..+10.1°.
              - At the last stage's weights the per-step reward of steady play is about zero (mean episode reward
                −6 with the −5 for the end): the speed cost should not go higher.
-         - Next: rig run of `solo_v1` with a 240 fps video. Both trainings continue: solo seed 42 for 3000 more
-           iterations from 08:42 (`build/analysis/train_solo_v2.log`), lead to iteration 5498 (~10:20,
-           `train_gentle_lead_v3.log`). A fix that keeps the holder tight. Open: the bounce memory on the solo
-           policy (`warm_start.py`); the restitution's fall with speed; hitting the first bounce.
+           - **Rig, `solo_v1`, 2026-11-14 10:29** (`_102941`, video `2026-11-14_solo_v1_IMG_4113.MOV`, log − video
+             0.423 s): 2.9 bounces per drop (best 5; unhit first bounce counted), ends off the front 5 / back 5.
+             RMS joint speeds in deg/s: pan 29, lift 23, elbow 21, wrist flex 54, roll 32 (sim: 18 / 15 / 18 / 43
+             / 17). Sim median for the same policy: 47 bounces per episode.
+             - Predicted contact time against the video's (p10..p90, ms), rig: −33..+30 at 100 ms before, −29..+30
+               at 60 ms, −22..+47 at 30 ms; it does not tighten towards the hit. Sim: −16..+11, −15..+8, −13..+6.
+             - Apparent size: flight residuals 4.07 % of the range on the rig, 1.48 % in sim. Other size estimators
+               on the recorded frames (hull, enclosing circle, edge circle fit, ellipse axes, widest chord) and
+               wider HSV masks: 3.3–5.9 %, none better (`build/analysis/size_estimators.py`).
+             - Each detection against the filter's prediction of it (`build/analysis/innovations.py`, five runs
+               2026-11-13 morning to 2026-11-14): in play the bearing is off by 11–14° RMS across the picture and
+               4–7° along it (median 4.0° and 1.4°; of the accepted ones 2.1° and 1.0°) against an assumed 0.3°;
+               28–47 % of the detections in play are rejected by the gate. Mean offsets +1.5..+3° across. Joint
+               speeds explain 1–8 % of it. The same in the stiff-holder morning runs. **Cause not established**:
+               camera pose on the paddle, the lens model off-axis, or the filter's own state after a bounce.
+             - Two sim camera settings each make the sim as bad as the rig (`camera_noise_scan*.py`, `solo_v1`, 32
+               episodes each, bounces per episode mean / median; task noise 29.8 / 24): size noise 8 px 9.1 / 4;
+               pixel noise 12 px with size noise 4 px 13.5 / 5 (timing −30..+28, −24..+29, −15..+30 ms); pixel
+               25 px 4.4 / 4. The match of the timing spread does not tell the two apart.
+             - Telling the filter, in sim: size 8 px true, told 4 / 8 / 16 px: 20.9 / 15.5 / 7.7 (told 1.5 as now:
+               9.1). Pixel 12 px, angle floor 0.04 rad: 20.5 (13.5); pixel 25 px: 12.9 (4.4). Task noise with the
+               floor at 0.04: 27.1 (29.8).
+             - Telling the filter, on the rig run's recorded detections with the video as truth
+               (`build/analysis/replay_noise.py`; the replay reproduces the logged estimate exactly; 24 bounces,
+               11 settings tried on the same data, so the best one is flattered): angle floor 0.04 rad: median
+               |error| 14 / 14 / 8 ms at 100 / 60 / 30 ms before (rig settings 23 / 20 / 19), p10..p90 at 30 ms
+               −13..+28 (−22..+47), rejected detections 149 → 60. Size noise 4–12 px, a wider bounce model, a
+               wider gate, more process noise: little or nothing. Not yet run on the arm.
+           - `run_robot.py --camera-noise KEY=VALUE` (rig: what the filter is told about the detections);
+             `export_policy.py` writes the task's assumed camera noise to `policy.json` and `run_robot.py` applies
+             it on the rig. `warm_start.py` carries the env step counter (reward curricula go on).
+           - **`PingPong-Bounce-Solo-Wobble`**: the solo task with wrist camera pixel noise 6–20 px, size noise
+             2–8 px, filter told angle floor 0.04 rad and 5 px. White noise as a stand-in for whatever the rig's
+             error is. Solo seed 42 continuation stopped at iteration 5089 (flat at 19.1–19.8 bounces per episode
+             since 3600); warm start from its `model_5000.pt`, action std 0.1, 3000 iterations from 10:55, due
+             ~14:30 (`logs/rsl_rl/pingpong_solo_wobble/2026-11-14_10-55-20`,
+             `build/analysis/train_solo_wobble_v1.log`).
+         - Next: rig run of `solo_v1` with `--camera-noise angle_floor=0.04` (same policy, filter told) against
+           the 2.9 baseline. Find the cause of the bearing error (static test: ball on a string above a still arm;
+           then with the wrist stroking). Lead to iteration 5498 finished ~10:20, not exported. A fix that keeps
+           the holder tight. Open: the bounce memory on the solo policy (`warm_start.py`); the restitution's fall
+           with speed; hitting the first bounce.
 
 ## Decisions
 

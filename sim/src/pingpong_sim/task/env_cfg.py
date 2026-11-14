@@ -40,7 +40,8 @@ SOLO_GOAL_RATE = (400.0, 200.0, 300.0, 860.0, 600.0)
 
 def make_env_cfg(residual: bool = True, play: bool = False, stroke_joint: str = "elbow_flex",
                  gentle: bool = False, memory: bool = False, carry: bool = False,
-                 lead: bool = False, rough: bool = False, solo: bool = False) -> ManagerBasedRlEnvCfg:
+                 lead: bool = False, rough: bool = False, solo: bool = False,
+                 wobble: bool = False) -> ManagerBasedRlEnvCfg:
     """`residual`: actions correct the scripted bouncer's goal (else: offsets from the ready pose). `stroke_joint`:
     the one joint the scripted bouncer strokes with (the elbow, or the wrist: a third of the inertia to swing).
     `gentle` (residual): the bouncer aims and strokes with the pan and the wrist only while lift and elbow hold
@@ -52,7 +53,8 @@ def make_env_cfg(residual: bool = True, play: bool = False, stroke_joint: str = 
     paid for the ball's energy at every step, to hit where the bouncer plans nothing. `rough` (gentle): every bounce
     has its own restitution. `solo`: no bouncer at all: the policy's actions are the servo goals (offsets from the
     ready pose, rate-limited as on the rig), in the gentle task's arm and cameras with the rough bounces, paid for
-    the ball's energy and charged for jerky goals and fast joints."""
+    the ball's energy and charged for jerky goals and fast joints. `wobble` (gentle): the wrist camera's detections
+    are as poor as the rig's, and the ball filter is told so."""
     if solo:
         # No bouncer; the real arm's sim with everything learned about it; a new restitution per bounce. Not the
         # bounce memory: trained from scratch its inputs are zero until rallies happen and the observation
@@ -73,6 +75,16 @@ def make_env_cfg(residual: bool = True, play: bool = False, stroke_joint: str = 
         task.cameras = (replace(WRIST, stamp_bias_ms=(-15.0, 15.0)),)
         # The wrist camera sees ~0.2 m above the blade; the rig's drops arrive at 2.2-2.9 m/s (0.25-0.43 m).
         task.drop_height = (0.10, 0.45)
+        if wobble:
+            # The wrist camera as poor as the rig's detections look to the ball filter (2026-11-14, one solo run
+            # with a 240 fps video as truth): detections sit 2-4 deg (median) from where the filter expects them
+            # in play, against an assumed 0.3 deg, and the apparent size is off by ~5 % (1 % here); the impact time
+            # is known to +-30 ms, not +-12. Why is not established (camera pose on a shaken paddle, lens model,
+            # or the filter's own state). White pixel noise is a stand-in: 12 px with 4 px on the diameter gives
+            # the rig's timing errors in simulation (32 episodes). The filter is told: angle floor 0.04 rad, the
+            # best of 11 settings replayed on that run's 24 bounces (not checked on a second run).
+            task.cameras = (replace(WRIST, stamp_bias_ms=(-15.0, 15.0), pixel_noise=(6.0, 20.0),
+                                    diameter_noise=(2.0, 8.0), assumed_angle_floor=0.04, assumed_diameter_noise=5.0),)
         if carry:
             # The wrist's stroke turns the face at 60-100 deg/s, so 10-15 ms of timing error is 1 deg of lean and
             # every bounce leaves a few cm forward or back of where it was sent; rig rallies end off the blade's

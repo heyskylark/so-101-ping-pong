@@ -104,6 +104,11 @@ def main() -> None:
         },
         # Geometry and planning settings the deploy loop must match (observations are relative to these).
         "task": {k: getattr(st.cfg, k) for k in ("target_xy", "hit_z", "apex", "trust_vel_std", "use_bouncer")},
+        # What the ball filter is told about each camera's detections (the rig's calibration files say otherwise
+        # unless run_robot.py applies this).
+        "camera_noise": {c.name: {"pixel": c.assumed_pixel_noise, "diameter": c.assumed_diameter_noise,
+                                  "angle_floor": c.assumed_angle_floor, "size_floor": c.assumed_size_floor}
+                         for c in st.cfg.cameras},
         "bouncer": {k: v for k, v in asdict(st.ctrl.bouncer.cfg).items() if isinstance(v, (int, float, bool, tuple))},
         "controller": {k: getattr(st.ctrl.cfg, k) for k in ("history_len", "history_stride", "memory_slots",
                                                             "memory_delay")},

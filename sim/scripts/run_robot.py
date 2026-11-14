@@ -369,6 +369,11 @@ def main() -> int:
     ap.add_argument("--sim-bounce-jitter", nargs=2, type=float, metavar=("LO", "HI"),
                     help="--sim: a new ball-blade damping ratio in this range every 0.15-0.3 s, so each bounce has its "
                          "own restitution (0.10 0.25: ~0.76-0.50), as the task PingPong-Bounce-Gentle-Rough trains with")
+    ap.add_argument("--camera-noise", nargs="*", default=[], metavar="KEY=VALUE",
+                    help="EXPERIMENT: the detection noise the ball filter assumes, instead of the calibration files': "
+                         "pixel [px], diameter [px], angle_floor [rad], size_floor [relative]. In play the rig's wrist "
+                         "camera detections sit 2-4 deg from where the filter expects them, against the 0.23 deg of "
+                         "angle_floor 0.004")
     ap.add_argument("--sim-zero-error", nargs="*", default=[], metavar="JOINT=DEG",
                     help="--sim: a calibration error of these joints' zeros (the controller believes the true angle "
                          "plus this), e.g. wrist_roll=2: a blade that leans 2 deg sideways when it is thought level")
@@ -469,6 +474,20 @@ def main() -> int:
         tracking = use_rig_tracking()
         if tracking:
             warnings.append(f"bouncer feedforward from the rig's tracking model ({tracking})")
+    if args.sim and args.camera_noise:
+        raise SystemExit("--camera-noise: the rig's cameras only (the simulated ones carry their own assumed noise)")
+    if not args.sim and policy_dir:  # the filter as the policy was trained with it (policies exported since 2026-11-14)
+        for name, n in (spec.get("camera_noise") or {}).items():
+            if name in calibs and any(calibs[name].noise.get(k) != v for k, v in n.items()):
+                calibs[name].noise = {**calibs[name].noise, **n}
+                warnings.append(f"ball filter told the {name} camera's noise the policy was trained with: {n}")
+    for kv in args.camera_noise:  # what the ball filter is told about the cameras' detections
+        key, val = kv.split("=")
+        for c in calibs.values():
+            if key not in c.noise:
+                raise SystemExit(f"--camera-noise: no {key!r} (have {sorted(c.noise)})")
+            c.noise = {**c.noise, key: float(val)}
+        warnings.append(f"EXPERIMENT: ball filter told the cameras' {key} noise is {float(val):g}")
     if args.ball_gravity is not None:
         import pingpong_sim.ball_filter as ball_filter_mod
         import pingpong_sim.bouncer as bouncer_mod
