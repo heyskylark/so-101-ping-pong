@@ -34,7 +34,7 @@ uv run scripts/warm_start.py <model.pt> --from-task PingPong-Bounce-Gentle --tas
 uv run scripts/eval_task.py --checkpoint logs/rsl_rl/pingpong_residual/<run>/model_<n>.pt   # + bounce quality, residual size, timing
 uv run scripts/play.py PingPong-Bounce-Residual --checkpoint-file <model.pt>     # interactive viewer
 uv run scripts/export_policy.py logs/rsl_rl/pingpong_residual/<run>/model_<n>.pt --name <name>  # -> policies/<name>/ (ONNX + spec)
-uv run scripts/sim2sim.py policies/<name> --episodes 96 --workers 16 [--belief-gravity 0.89]   # exported policy on CPU MuJoCo, deploy code path
+uv run scripts/sim2sim.py policies/<name> --episodes 96 --workers 16 [--belief-gravity 0.89] [--task <task id>]   # exported policy on CPU MuJoCo, deploy code path; --task: in another task's world
 uv run pytest tests                              # fast paths (one CPU world) == batched paths (training)
 # Real rig (docs/hardware_setup.md, "Bring-up and calibration"):
 uv run scripts/make_calib_targets.py            # printable AprilTag + ChArUco (Letter, exact scale) -> build/calib_targets.pdf

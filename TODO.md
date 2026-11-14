@@ -1099,11 +1099,25 @@ drifting** parameters (this paddle's restitution, latency, backlash, sag), which
              1/28/54, mean 27.4, 46 % full 20 s. Rig-like arm, bounces per drop (`gentle_memory_v1` in
              brackets): wrist zero error 0° 19, +2° 79 (5.1), −2° 18.5 (1.9); roll +2° 3.3 (2.9), −2° 37 (3.7);
              a new restitution each bounce: 11.9 (4.2) at 0.10–0.25, 6.4 (3.9) at 0.08–0.30.
-         - Next: rig run of `gentle_lead_v1`. Training of the rough task from the lead task's checkpoint at
-           iteration 1300 (`warm_start.py --action-std 0.1`), 2000 iterations from 21:31
-           (`logs/rsl_rl/pingpong_gentle_rough/2026-11-13_21-31-53`, `build/analysis/train_gentle_rough_v1.log`).
-           A fix that keeps the holder tight. Open: a shorter commitment (stroke time, lock); the restitution's
-           fall with speed; hitting the first bounce.
+           - Rig, `gentle_v3`, holder tight (`_204013`): bounces per drop 2 3 5 3 3 5 2 3 2 4 3 2, mean 3.1,
+             best 5; first stroked hits 12, followed 8.
+           - **`gentle_rough_v1`** (rough task, 2000 iterations from the lead task's checkpoint at iteration
+             1300, `warm_start.py --action-std 0.1`, 21:31–00:25;
+             `logs/rsl_rl/pingpong_gentle_rough/2026-11-13_21-31-53`). `sim2sim.py` (`--task`, new: a policy in
+             another task's world), 96 episodes each, mean bounces per episode / full 20 s:
+
+             | World | `gentle_lead_v1` | `gentle_rough_v1` |
+             |---|---|---|
+             | lead task (one restitution per episode) | 23.7 / 41 % | 25.6 / 45 % |
+             | rough task (a new restitution per bounce) | 15.5 / 17 % | 18.7 / 24 % |
+
+             A little better in both worlds; the medians stay at 4–7 bounces (an episode ends in its first
+             bounces or runs long), and the rough world still costs a third of the bounces. Three 60 s runs
+             each at the rig-like arm, bounces per drop, lead / rough: restitution drawn in 0.10–0.25 4.3 /
+             12.6, in 0.08–0.30 8.8 / 3.6: one arm per run, and the arm decides more than the policy.
+         - Next: rig runs of `gentle_lead_v1` and `gentle_rough_v1` on the tight holder, with a 240 fps video.
+           A fix that keeps the holder tight. Open: a shorter commitment (stroke time, lock); the
+           restitution's fall with speed; hitting the first bounce.
 
 ## Decisions
 

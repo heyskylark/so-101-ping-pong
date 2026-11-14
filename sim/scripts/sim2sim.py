@@ -35,11 +35,11 @@ from pingpong_sim.task.state import bounce_events
 
 
 class Runner:
-    def __init__(self, policy_dir: Path, seed: int, belief_gravity: float = 1.0):
+    def __init__(self, policy_dir: Path, seed: int, belief_gravity: float = 1.0, task: str | None = None):
         self.belief_gravity = belief_gravity
         torch.manual_seed(seed)
         spec = json.loads((policy_dir / "policy.json").read_text())
-        self.w = w = CpuWorld(spec["task_id"])
+        self.w = w = CpuWorld(task or spec["task_id"])
         self.ctrl = BounceController(controller_cfg_from_policy(spec, w.task.controller_cfg()), w.kin, w.q_ready, 1,
                                      w.dt, "cpu")
         self.policy = OnnxPolicy(policy_dir, self.ctrl)
@@ -91,11 +91,11 @@ class Runner:
         return {"bounces": bounces, "cause": cause, "hits": hits, "errs": errs}
 
 
-def run(job: tuple[str, int, int, float]) -> list[dict]:
-    policy_dir, seed, n, belief = job
+def run(job: tuple[str, int, int, float, str | None]) -> list[dict]:
+    policy_dir, seed, n, belief, task = job
     torch.set_num_threads(1)
     np.random.seed(seed)
-    r = Runner(Path(policy_dir), seed, belief)
+    r = Runner(Path(policy_dir), seed, belief, task)
     return [r.episode() for _ in range(n)]
 
 
@@ -107,16 +107,18 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--belief-gravity", type=float, default=1.0,
                     help="gravity the ball filter and bouncer assume, x the true one (the rig acted like ~0.89)")
+    ap.add_argument("--task", help="the world of another task (its physics and randomization; the policy's own "
+                                   "controller settings), e.g. a policy of the lead task in PingPong-Bounce-Gentle-Rough")
     args = ap.parse_args()
     per = -(-args.episodes // args.workers)
-    jobs = [(args.policy, args.seed + i, per, args.belief_gravity) for i in range(args.workers)]
+    jobs = [(args.policy, args.seed + i, per, args.belief_gravity, args.task) for i in range(args.workers)]
     t = time.time()
     with mp.get_context("spawn").Pool(args.workers) as pool:
         eps = [e for r in pool.map(run, jobs) for e in r]
     b = np.array([e["bounces"] for e in eps])
     causes = [e["cause"] for e in eps]
-    print(f"sim2sim (CPU MuJoCo, onnxruntime), {args.policy}, belief gravity x{args.belief_gravity:.2f}: {len(eps)} "
-          f"episodes in {time.time() - t:.0f} s")
+    print(f"sim2sim (CPU MuJoCo, onnxruntime), {args.policy}{', in ' + args.task if args.task else ''}, belief gravity "
+          f"x{args.belief_gravity:.2f}: {len(eps)} episodes in {time.time() - t:.0f} s")
     print(f"  bounces per episode p10/p50/p90: {np.percentile(b, 10):.0f} / {np.percentile(b, 50):.0f} / "
           f"{np.percentile(b, 90):.0f}  (mean {b.mean():.1f}); full 20 s: {100 * np.mean([c == 'time_out' for c in causes]):.1f} %")
     ended = [c for c in causes if c != "time_out"]
